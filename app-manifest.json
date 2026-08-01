@@ -1,0 +1,8 @@
+{
+  "name": "MViewer",
+  "bundleId": "com.richardogcc.mviewer",
+  "description": "Blazing-fast native image and video viewer for macOS.",
+  "repo": "richardogcc/MViewer",
+  "minMacOS": "14.0",
+  "artifact": "MViewer-{version}.dmg"
+}
