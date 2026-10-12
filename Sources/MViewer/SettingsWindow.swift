@@ -39,6 +39,7 @@ final class ShortcutsSettingsViewController: NSViewController {
 
     private let rowsStack = NSStackView()
     private var listViews: [ShortcutAction: ShortcutListView] = [:]
+    private var actionRows: [ShortcutAction: NSView] = [:]
     private let statusLabel = NSTextField(labelWithString: "")
     private var storeObserver: NSObjectProtocol?
 
@@ -110,12 +111,12 @@ final class ShortcutsSettingsViewController: NSViewController {
         view = root
         preferredContentSize = root.frame.size
 
-        rebuildRows()
-        // Synchronous (no queue), so rows are rebuilt before focus is restored.
+        buildRows()
+        // Synchronous (no queue), so rows are updated before focus is restored.
         storeObserver = NotificationCenter.default.addObserver(
             forName: ShortcutStore.didChange, object: nil, queue: nil
         ) { [weak self] _ in
-            self?.rebuildRows()
+            self?.updateChangedRows()
         }
     }
 
@@ -180,7 +181,7 @@ final class ShortcutsSettingsViewController: NSViewController {
         view.window?.makeFirstResponder(list.token(at: tokenIndex))
     }
 
-    /// Rows are rebuilt on every change: relink the Tab order top to bottom,
+    /// Shortcut lists are replaced on change: relink the Tab order top to bottom,
     /// starting at the first shortcut (the tab view controller otherwise
     /// points the first Tab at a view that can't take focus).
     private func updateKeyViewLoop() {
@@ -208,19 +209,16 @@ final class ShortcutsSettingsViewController: NSViewController {
 
     // MARK: - Rows
 
-    private func rebuildRows() {
-        rowsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        listViews = [:]
+    private func buildRows() {
         for row in rows {
-            let rowView: NSView
+            let rowView = NSView()
             switch row {
             case .header(let title):
                 let label = NSTextField(labelWithString: title)
                 label.font = .systemFont(ofSize: 12, weight: .semibold)
                 label.textColor = .secondaryLabelColor
-                rowView = NSView()
-                rowView.addSubview(label)
                 label.translatesAutoresizingMaskIntoConstraints = false
+                rowView.addSubview(label)
                 NSLayoutConstraint.activate([
                     rowView.heightAnchor.constraint(equalToConstant: rowsStack.arrangedSubviews.isEmpty ? 24 : 36),
                     label.leadingAnchor.constraint(equalTo: rowView.leadingAnchor),
@@ -230,35 +228,66 @@ final class ShortcutsSettingsViewController: NSViewController {
                 let label = NSTextField(labelWithString: action.title)
                 label.lineBreakMode = .byTruncatingTail
                 label.toolTip = action.title
-                let list = ShortcutListView(action: action)
-                list.onRecord = { [weak self] shortcut, index in
-                    self?.record(shortcut, for: action, replacing: index)
-                }
-                list.onRemove = { [weak self] index in self?.remove(at: index, from: action) }
-                list.onReset = { [weak self] in self?.reset(action) }
-                listViews[action] = list
-
-                rowView = NSView()
-                for view in [label, list] {
-                    view.translatesAutoresizingMaskIntoConstraints = false
-                    rowView.addSubview(view)
-                }
+                label.translatesAutoresizingMaskIntoConstraints = false
+                rowView.addSubview(label)
                 NSLayoutConstraint.activate([
                     rowView.heightAnchor.constraint(equalToConstant: 30),
                     label.leadingAnchor.constraint(equalTo: rowView.leadingAnchor),
                     label.widthAnchor.constraint(equalToConstant: 240),
                     label.centerYAnchor.constraint(equalTo: rowView.centerYAnchor),
-                    list.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 6),
-                    list.trailingAnchor.constraint(equalTo: rowView.trailingAnchor),
-                    list.topAnchor.constraint(equalTo: rowView.topAnchor),
-                    list.bottomAnchor.constraint(equalTo: rowView.bottomAnchor),
                 ])
+                actionRows[action] = rowView
+                installList(for: action)
             }
             rowsStack.addArrangedSubview(rowView)
             rowView.widthAnchor.constraint(equalTo: rowsStack.widthAnchor, constant: -32).isActive = true
         }
         updateKeyViewLoop()
     }
+
+    /// Replaces only the lists whose shortcuts changed; an edit touches one
+    /// to three actions, and rebuilding every row stalls for ~100 ms.
+    private func updateChangedRows() {
+        let store = ShortcutStore.shared
+        let changed = ShortcutAction.allCases.filter { listViews[$0]?.shortcuts != store.shortcuts(for: $0) }
+        guard !changed.isEmpty else { return }
+        changed.forEach(installList(for:))
+        updateKeyViewLoop()
+    }
+
+    private func installList(for action: ShortcutAction) {
+        guard let rowView = actionRows[action] else { return }
+        listViews[action]?.removeFromSuperview()
+
+        let list = ShortcutListView(action: action)
+        list.onRecord = { [weak self] shortcut, index in
+            self?.record(shortcut, for: action, replacing: index)
+        }
+        list.onRemove = { [weak self] index in self?.remove(at: index, from: action) }
+        list.onReset = { [weak self] in self?.reset(action) }
+        listViews[action] = list
+
+        list.translatesAutoresizingMaskIntoConstraints = false
+        rowView.addSubview(list)
+        NSLayoutConstraint.activate([
+            list.leadingAnchor.constraint(equalTo: rowView.leadingAnchor, constant: 246),
+            list.trailingAnchor.constraint(equalTo: rowView.trailingAnchor),
+            list.topAnchor.constraint(equalTo: rowView.topAnchor),
+            list.bottomAnchor.constraint(equalTo: rowView.bottomAnchor),
+        ])
+    }
+}
+
+/// Borderless symbol button. Built without `NSButton(image:target:action:)`,
+/// whose sizeToFit measures the symbol slowly (~5x the cost of this).
+private func symbolButton(_ symbol: String, target: AnyObject, action: Selector) -> NSButton {
+    let button = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+    button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+    button.imagePosition = .imageOnly
+    button.isBordered = false
+    button.target = target
+    button.action = action
+    return button
 }
 
 private final class FlippedView: NSView {
@@ -271,15 +300,13 @@ private final class ShortcutListView: NSView {
     var onRemove: ((Int) -> Void)?
     var onReset: (() -> Void)?
 
+    /// The shortcuts this list shows, to tell when it is out of date.
+    let shortcuts: [KeyShortcut]
     private var tokens: [ShortcutTokenView] = []
-    private let resetButton: NSButton
 
     init(action: ShortcutAction) {
-        resetButton = NSButton(image: NSImage(systemSymbolName: "arrow.counterclockwise",
-                                              accessibilityDescription: nil)!,
-                               target: nil, action: nil)
+        shortcuts = ShortcutStore.shared.shortcuts(for: action)
         super.init(frame: .zero)
-        let shortcuts = ShortcutStore.shared.shortcuts(for: action)
 
         tokens = shortcuts.enumerated().map { index, shortcut in
             let token = ShortcutTokenView(shortcut: shortcut, actionTitle: action.title)
@@ -299,20 +326,20 @@ private final class ShortcutListView: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
-        let reset = resetButton
-        reset.target = self
-        reset.action = #selector(reset(_:))
-        reset.setAccessibilityLabel("Restore default shortcuts for \(action.title)")
-        reset.isBordered = false
-        reset.contentTintColor = .secondaryLabelColor
-        reset.toolTip = "Restore default"
-        reset.isHidden = ShortcutStore.shared.isDefault(action)
-        reset.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(reset)
-
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        // Only customized actions get a reset button.
+        guard !ShortcutStore.shared.isDefault(action) else { return }
+        let reset = symbolButton("arrow.counterclockwise", target: self, action: #selector(reset(_:)))
+        reset.setAccessibilityLabel("Restore default shortcuts for \(action.title)")
+        reset.contentTintColor = .secondaryLabelColor
+        reset.toolTip = "Restore default"
+        reset.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(reset)
+        NSLayoutConstraint.activate([
             reset.leadingAnchor.constraint(greaterThanOrEqualTo: stack.trailingAnchor, constant: 8),
             reset.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             reset.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -323,11 +350,10 @@ private final class ShortcutListView: NSView {
 
     @objc private func reset(_ sender: Any?) { onReset?() }
 
-    /// The token at `index`, clamped to the last one (the add token, if any);
-    /// the reset button when there are no tokens.
+    /// The token at `index`, clamped to the last one (the add token, if any).
+    /// Never empty: with no shortcuts there is always the add token.
     func token(at index: Int) -> NSView {
-        guard !tokens.isEmpty else { return resetButton }
-        return tokens[min(max(index, 0), tokens.count - 1)]
+        tokens[min(max(index, 0), tokens.count - 1)]
     }
 }
 
@@ -370,10 +396,7 @@ final class ShortcutTokenView: NSView {
         stack.spacing = 2
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: shortcut == nil ? 8 : 4)
         if shortcut != nil {
-            let remove = NSButton(image: NSImage(systemSymbolName: "xmark.circle.fill",
-                                                 accessibilityDescription: "Remove shortcut")!,
-                                  target: self, action: #selector(remove(_:)))
-            remove.isBordered = false
+            let remove = symbolButton("xmark.circle.fill", target: self, action: #selector(remove(_:)))
             remove.imageScaling = .scaleProportionallyDown
             remove.contentTintColor = .tertiaryLabelColor
             remove.toolTip = "Remove shortcut"

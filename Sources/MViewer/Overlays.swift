@@ -53,8 +53,8 @@ final class ShortcutsOverlayView: NSView {
         card.wantsLayer = true
         card.layer?.cornerRadius = 14
         card.layer?.masksToBounds = true
+        // The list is built by reload() each time the overlay is shown.
         addSubview(card)
-        reload()
     }
 
     required init?(coder: NSCoder) { fatalError() }
