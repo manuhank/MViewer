@@ -26,22 +26,43 @@ final class SettingsWindowController: NSWindowController {
 /// Lists every customizable action with its shortcuts. Click a shortcut to
 /// re-record it, + to add one, × to remove one. A plain stack of rows (not a
 /// table) so every row exists and Tab walks through them in order.
+/// The only Settings code that talks to the store.
 final class ShortcutsSettingsViewController: NSViewController {
     private enum Row {
         case header(String)
         case action(ShortcutAction)
     }
 
-    private let rows: [Row] = ShortcutAction.Category.allCases.flatMap { category -> [Row] in
-        [.header(category.title)] +
-            ShortcutAction.allCases.filter { $0.category == category }.map { .action($0) }
+    private enum Layout {
+        static let rowInsets = NSEdgeInsets(top: 0, left: 20, bottom: 12, right: 12)
+        static let rowHeight: CGFloat = 30
+        static let firstHeaderHeight: CGFloat = 24
+        static let headerHeight: CGFloat = 36
+        static let labelWidth: CGFloat = 240
+        static let labelGap: CGFloat = 6
     }
 
+    private let rows: [Row] = ShortcutAction.Category.allCases.flatMap { category in
+        [Row.header(category.title)] + category.actions.map(Row.action)
+    }
+
+    private let store: ShortcutStore
     private let rowsStack = NSStackView()
     private var listViews: [ShortcutAction: ShortcutListView] = [:]
     private var actionRows: [ShortcutAction: NSView] = [:]
     private let statusLabel = NSTextField(labelWithString: "")
     private var storeObserver: NSObjectProtocol?
+
+    init(store: ShortcutStore = .shared) {
+        self.store = store
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let storeObserver { store.notificationCenter.removeObserver(storeObserver) }
+    }
 
     override func loadView() {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 620, height: 560))
@@ -56,7 +77,7 @@ final class ShortcutsSettingsViewController: NSViewController {
         rowsStack.orientation = .vertical
         rowsStack.alignment = .leading
         rowsStack.spacing = 0
-        rowsStack.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 12, right: 12)
+        rowsStack.edgeInsets = Layout.rowInsets
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         let document = FlippedView()
         document.translatesAutoresizingMaskIntoConstraints = false
@@ -113,8 +134,8 @@ final class ShortcutsSettingsViewController: NSViewController {
 
         buildRows()
         // Synchronous (no queue), so rows are updated before focus is restored.
-        storeObserver = NotificationCenter.default.addObserver(
-            forName: ShortcutStore.didChange, object: nil, queue: nil
+        storeObserver = store.notificationCenter.addObserver(
+            forName: ShortcutStore.didChange, object: store, queue: nil
         ) { [weak self] _ in
             self?.updateChangedRows()
         }
@@ -125,78 +146,46 @@ final class ShortcutsSettingsViewController: NSViewController {
         updateKeyViewLoop()
     }
 
-    deinit {
-        if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
-    }
-
     override func viewWillDisappear() {
         super.viewWillDisappear()
-        ShortcutTokenView.cancelRecording()
+        ShortcutRecorderView.cancelRecording()
         statusLabel.stringValue = ""
     }
 
     // MARK: - Editing
 
     private func record(_ shortcut: KeyShortcut, for action: ShortcutAction, replacing index: Int?) {
-        let store = ShortcutStore.shared
-        let hadFocus = focusIsInRows
-        if store.isReserved(shortcut) {
-            // The recorder already handed the key to the menu bar.
-            statusLabel.stringValue = "\(shortcut.displayString) is reserved for the system."
-            return
+        keepingFocus {
+            if store.isReserved(shortcut) {
+                // The recorder already handed the key to the menu bar.
+                statusLabel.stringValue = "\(shortcut.displayString) is reserved for the system."
+                return nil
+            }
+            let owner = store.assign(shortcut, to: action, replacing: index)
+            statusLabel.stringValue = owner.map {
+                "\(shortcut.displayString) was removed from “\($0.title)”."
+            } ?? ""
+            let list = store.shortcuts(for: action)
+            return (action, list.firstIndex(of: shortcut) ?? list.count)
         }
-        if let owner = store.assign(shortcut, to: action, replacing: index) {
-            statusLabel.stringValue = "\(shortcut.displayString) was removed from “\(owner.title)”."
-        } else {
-            statusLabel.stringValue = ""
-        }
-        let list = store.shortcuts(for: action)
-        if hadFocus { restoreFocus(to: action, tokenIndex: list.firstIndex(of: shortcut) ?? list.count) }
     }
 
     private func remove(at index: Int, from action: ShortcutAction) {
-        let hadFocus = focusIsInRows
-        statusLabel.stringValue = ""
-        ShortcutStore.shared.remove(at: index, from: action)
-        if hadFocus { restoreFocus(to: action, tokenIndex: index) }
+        keepingFocus {
+            statusLabel.stringValue = ""
+            store.remove(at: index, from: action)
+            return (action, index)
+        }
     }
 
     private func reset(_ action: ShortcutAction) {
-        let hadFocus = focusIsInRows
-        let touched = ShortcutStore.shared.reset(action)
-        let names = touched.map { "“\($0.title)”" }.joined(separator: ", ")
-        statusLabel.stringValue = touched.isEmpty ? "" :
-            "Restored “\(action.title)”; its defaults were removed from \(names)."
-        if hadFocus { restoreFocus(to: action, tokenIndex: 0) }
-    }
-
-    private var focusIsInRows: Bool {
-        (view.window?.firstResponder as? NSView)?.isDescendant(of: rowsStack) == true
-    }
-
-    /// The action whose shortcuts have keyboard focus, if any.
-    private var focusedAction: ShortcutAction? {
-        guard let responder = view.window?.firstResponder as? NSView else { return nil }
-        return listViews.first { responder.isDescendant(of: $0.value) }?.key
-    }
-
-    /// A change replaces the action's shortcut list, which drops keyboard focus;
-    /// put it back on the same action so keyboard users keep their place.
-    private func restoreFocus(to action: ShortcutAction, tokenIndex: Int) {
-        guard let list = listViews[action] else { return }
-        view.window?.makeFirstResponder(list.token(at: tokenIndex))
-    }
-
-    /// Shortcut lists are replaced on change: relink the Tab order top to bottom,
-    /// starting at the first shortcut (the tab view controller otherwise
-    /// points the first Tab at a view that can't take focus).
-    private func updateKeyViewLoop() {
-        guard let window = view.window else { return }
-        window.recalculateKeyViewLoop()
-        let first = ShortcutAction.Category.allCases.first.flatMap { category in
-            ShortcutAction.allCases.first { $0.category == category }
+        keepingFocus {
+            let touched = store.reset(action)
+            let names = touched.map { "“\($0.title)”" }.joined(separator: ", ")
+            statusLabel.stringValue = touched.isEmpty ? "" :
+                "Restored “\(action.title)”; its defaults were removed from \(names)."
+            return (action, 0)
         }
-        window.initialFirstResponder = first.flatMap { listViews[$0]?.token(at: 0) }
     }
 
     @objc private func restoreDefaults(_ sender: Any?) {
@@ -209,10 +198,42 @@ final class ShortcutsSettingsViewController: NSViewController {
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn else { return }
             let focused = self.focusedAction
-            ShortcutStore.shared.resetAll()
-            self.statusLabel.stringValue = ""
-            if let focused { self.restoreFocus(to: focused, tokenIndex: 0) }
+            self.keepingFocus {
+                self.store.resetAll()
+                self.statusLabel.stringValue = ""
+                return focused.map { ($0, 0) }
+            }
         }
+    }
+
+    // MARK: - Focus
+
+    /// Runs an edit, which replaces the edited action's shortcut list and so
+    /// drops keyboard focus. If focus was in the rows, puts it back on the
+    /// token the edit returns, so keyboard users keep their place.
+    private func keepingFocus(_ edit: () -> (action: ShortcutAction, tokenIndex: Int)?) {
+        let focusWasInRows = (view.window?.firstResponder as? NSView)?.isDescendant(of: rowsStack) == true
+        guard let target = edit(), focusWasInRows, let list = listViews[target.action] else { return }
+        view.window?.makeFirstResponder(list.token(at: target.tokenIndex))
+    }
+
+    /// The action whose shortcuts have keyboard focus, if any.
+    private var focusedAction: ShortcutAction? {
+        guard let responder = view.window?.firstResponder as? NSView else { return nil }
+        return listViews.first { responder.isDescendant(of: $0.value) }?.key
+    }
+
+    /// Shortcut lists are replaced on change: relink the Tab order top to bottom,
+    /// starting at the first shortcut (the tab view controller otherwise
+    /// points the first Tab at a view that can't take focus).
+    private func updateKeyViewLoop() {
+        guard let window = view.window else { return }
+        window.recalculateKeyViewLoop()
+        let firstAction = rows.lazy.compactMap { row -> ShortcutAction? in
+            if case .action(let action) = row { return action }
+            return nil
+        }.first
+        window.initialFirstResponder = firstAction.flatMap { listViews[$0]?.token(at: 0) }
     }
 
     // MARK: - Rows
@@ -227,8 +248,9 @@ final class ShortcutsSettingsViewController: NSViewController {
                 label.textColor = .secondaryLabelColor
                 label.translatesAutoresizingMaskIntoConstraints = false
                 rowView.addSubview(label)
+                let height = rowsStack.arrangedSubviews.isEmpty ? Layout.firstHeaderHeight : Layout.headerHeight
                 NSLayoutConstraint.activate([
-                    rowView.heightAnchor.constraint(equalToConstant: rowsStack.arrangedSubviews.isEmpty ? 24 : 36),
+                    rowView.heightAnchor.constraint(equalToConstant: height),
                     label.leadingAnchor.constraint(equalTo: rowView.leadingAnchor),
                     label.bottomAnchor.constraint(equalTo: rowView.bottomAnchor, constant: -4),
                 ])
@@ -239,16 +261,17 @@ final class ShortcutsSettingsViewController: NSViewController {
                 label.translatesAutoresizingMaskIntoConstraints = false
                 rowView.addSubview(label)
                 NSLayoutConstraint.activate([
-                    rowView.heightAnchor.constraint(equalToConstant: 30),
+                    rowView.heightAnchor.constraint(equalToConstant: Layout.rowHeight),
                     label.leadingAnchor.constraint(equalTo: rowView.leadingAnchor),
-                    label.widthAnchor.constraint(equalToConstant: 240),
+                    label.widthAnchor.constraint(equalToConstant: Layout.labelWidth),
                     label.centerYAnchor.constraint(equalTo: rowView.centerYAnchor),
                 ])
                 actionRows[action] = rowView
                 installList(for: action)
             }
             rowsStack.addArrangedSubview(rowView)
-            rowView.widthAnchor.constraint(equalTo: rowsStack.widthAnchor, constant: -32).isActive = true
+            let insets = Layout.rowInsets.left + Layout.rowInsets.right
+            rowView.widthAnchor.constraint(equalTo: rowsStack.widthAnchor, constant: -insets).isActive = true
         }
         updateKeyViewLoop()
     }
@@ -256,7 +279,6 @@ final class ShortcutsSettingsViewController: NSViewController {
     /// Replaces only the lists whose shortcuts changed; most edits touch a few
     /// actions, and rebuilding every row stalls for ~100 ms.
     private func updateChangedRows() {
-        let store = ShortcutStore.shared
         let changed = ShortcutAction.allCases.filter { listViews[$0]?.shortcuts != store.shortcuts(for: $0) }
         guard !changed.isEmpty else { return }
         changed.forEach(installList(for:))
@@ -267,7 +289,11 @@ final class ShortcutsSettingsViewController: NSViewController {
         guard let rowView = actionRows[action] else { return }
         listViews[action]?.removeFromSuperview()
 
-        let list = ShortcutListView(action: action)
+        let list = ShortcutListView(shortcuts: store.shortcuts(for: action),
+                                    actionTitle: action.title,
+                                    isCustomized: !store.isDefault(action),
+                                    maxCount: ShortcutStore.maxShortcutsPerAction,
+                                    passesThrough: store.isReserved)
         list.onRecord = { [weak self] shortcut, index in
             self?.record(shortcut, for: action, replacing: index)
         }
@@ -278,7 +304,8 @@ final class ShortcutsSettingsViewController: NSViewController {
         list.translatesAutoresizingMaskIntoConstraints = false
         rowView.addSubview(list)
         NSLayoutConstraint.activate([
-            list.leadingAnchor.constraint(equalTo: rowView.leadingAnchor, constant: 246),
+            list.leadingAnchor.constraint(equalTo: rowView.leadingAnchor,
+                                          constant: Layout.labelWidth + Layout.labelGap),
             list.trailingAnchor.constraint(equalTo: rowView.trailingAnchor),
             list.topAnchor.constraint(equalTo: rowView.topAnchor),
             list.bottomAnchor.constraint(equalTo: rowView.bottomAnchor),
@@ -286,45 +313,12 @@ final class ShortcutsSettingsViewController: NSViewController {
     }
 }
 
-/// Swallows auto-repeats of a key that was already acted on until it is
-/// released, so holding it doesn't re-trigger the menu, beep or move focus.
-private enum HeldKeyGuard {
-    private static var monitor: Any?
-
-    static func swallowRepeats(of event: NSEvent) {
-        stop()
-        let keyCode = event.keyCode
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
-            guard event.keyCode == keyCode else { return event }
-            if event.type == .keyDown && event.isARepeat { return nil }
-            stop() // released, or pressed again (a key-up was missed)
-            return event
-        }
-    }
-
-    private static func stop() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-    }
-}
-
-/// Borderless symbol button. Built without `NSButton(image:target:action:)`,
-/// whose sizeToFit measures the symbol slowly (~5x the cost of this).
-private func symbolButton(_ symbol: String, target: AnyObject, action: Selector) -> NSButton {
-    let button = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
-    button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-    button.imagePosition = .imageOnly
-    button.isBordered = false
-    button.target = target
-    button.action = action
-    return button
-}
-
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// One action's shortcuts as tokens, an add token and a reset button.
+/// One action's shortcuts as recorders, an add recorder and, when customized,
+/// a reset button.
 private final class ShortcutListView: NSView {
     var onRecord: ((KeyShortcut, Int?) -> Void)?
     var onRemove: ((Int) -> Void)?
@@ -332,39 +326,40 @@ private final class ShortcutListView: NSView {
 
     /// The shortcuts this list shows, to tell when it is out of date.
     let shortcuts: [KeyShortcut]
-    private var tokens: [ShortcutTokenView] = []
+    private var tokens: [ShortcutRecorderView] = []
 
-    init(action: ShortcutAction) {
-        shortcuts = ShortcutStore.shared.shortcuts(for: action)
+    init(shortcuts: [KeyShortcut], actionTitle: String, isCustomized: Bool, maxCount: Int,
+         passesThrough: @escaping (KeyShortcut) -> Bool) {
+        self.shortcuts = shortcuts
         super.init(frame: .zero)
 
         tokens = shortcuts.enumerated().map { index, shortcut in
-            let token = ShortcutTokenView(shortcut: shortcut, actionTitle: action.title)
+            let token = ShortcutRecorderView(shortcut: shortcut, actionTitle: actionTitle)
             token.onRecord = { [weak self] in self?.onRecord?($0, index) }
             token.onRemove = { [weak self] in self?.onRemove?(index) }
             return token
         }
-        if shortcuts.count < ShortcutStore.maxShortcutsPerAction {
-            let add = ShortcutTokenView(shortcut: nil, actionTitle: action.title)
+        if shortcuts.count < maxCount {
+            let add = ShortcutRecorderView(shortcut: nil, actionTitle: actionTitle)
             add.toolTip = "Add a shortcut"
             add.onRecord = { [weak self] in self?.onRecord?($0, nil) }
             tokens.append(add)
         }
+        tokens.forEach { $0.passesThrough = passesThrough }
+
         let stack = NSStackView(views: tokens)
         stack.orientation = .horizontal
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
-
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
-        // Only customized actions get a reset button.
-        guard !ShortcutStore.shared.isDefault(action) else { return }
+        guard isCustomized else { return }
         let reset = symbolButton("arrow.counterclockwise", target: self, action: #selector(reset(_:)))
-        reset.setAccessibilityLabel("Restore default shortcuts for \(action.title)")
+        reset.setAccessibilityLabel("Restore default shortcuts for \(actionTitle)")
         reset.contentTintColor = .secondaryLabelColor
         reset.toolTip = "Restore default"
         reset.translatesAutoresizingMaskIntoConstraints = false
@@ -384,232 +379,5 @@ private final class ShortcutListView: NSView {
     /// Never empty: with no shortcuts there is always the add token.
     func token(at index: Int) -> NSView {
         tokens[min(max(index, 0), tokens.count - 1)]
-    }
-}
-
-/// A keycap that records a new shortcut when clicked, or with Space/Return
-/// when focused (Delete removes it). With no shortcut it is the "+" add token.
-final class ShortcutTokenView: NSView {
-    var onRecord: ((KeyShortcut) -> Void)?
-    var onRemove: (() -> Void)?
-
-    private let shortcut: KeyShortcut?
-    private let actionTitle: String
-    private let label = NSTextField(labelWithString: "")
-    private var isRecording = false
-    private var keyMonitor: Any?
-    private var mouseMonitor: Any?
-    private var resignObserver: NSObjectProtocol?
-
-    private static weak var recording: ShortcutTokenView?
-
-    static func cancelRecording() {
-        recording?.stopRecording()
-    }
-
-    private static let cancelShortcut = KeyShortcut(".", .command)
-
-    init(shortcut: KeyShortcut?, actionTitle: String) {
-        self.shortcut = shortcut
-        self.actionTitle = actionTitle
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 5
-        layer?.borderWidth = 1
-
-        label.font = shortcut == nil ? .systemFont(ofSize: 13, weight: .medium)
-                                     : .systemFont(ofSize: 12, weight: .medium)
-        label.alignment = .center
-
-        let stack = NSStackView(views: [label])
-        stack.orientation = .horizontal
-        stack.spacing = 2
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: shortcut == nil ? 8 : 4)
-        if shortcut != nil {
-            let remove = symbolButton("xmark.circle.fill", target: self, action: #selector(remove(_:)))
-            remove.imageScaling = .scaleProportionallyDown
-            remove.contentTintColor = .tertiaryLabelColor
-            remove.toolTip = "Remove shortcut"
-            remove.setAccessibilityLabel("Remove shortcut \(shortcut!.displayString) for \(actionTitle)")
-            remove.widthAnchor.constraint(equalToConstant: 14).isActive = true
-            remove.heightAnchor.constraint(equalToConstant: 14).isActive = true
-            stack.addArrangedSubview(remove)
-        }
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 22),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: shortcut == nil ? 28 : 44),
-        ])
-        refresh()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    deinit {
-        removeMonitors()
-    }
-
-    override var wantsUpdateLayer: Bool { true }
-
-    override func updateLayer() {
-        layer?.backgroundColor = (isRecording ? NSColor.controlAccentColor.withAlphaComponent(0.15)
-                                              : NSColor.quaternaryLabelColor).cgColor
-        layer?.borderColor = (isRecording ? NSColor.controlAccentColor : NSColor.clear).cgColor
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil { stopRecording() }
-    }
-
-    // MARK: - Keyboard
-
-    /// Focusable from the keyboard only, like buttons: a click records
-    /// without leaving a focus ring behind.
-    override var acceptsFirstResponder: Bool {
-        NSApp.currentEvent.map { ![.leftMouseDown, .rightMouseDown].contains($0.type) } ?? true
-    }
-    override var canBecomeKeyView: Bool { true }
-    override var focusRingMaskBounds: NSRect { bounds }
-
-    override func drawFocusRingMask() {
-        NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5).fill()
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        scrollToVisible(bounds.insetBy(dx: 0, dy: -8))
-        return true
-    }
-
-    override func keyDown(with event: NSEvent) {
-        // Repeats of a held key are ignored: holding Space would toggle
-        // recording, holding Delete would remove every shortcut in turn. Delete
-        // on the add token does nothing (no beep).
-        let plain = event.modifierFlags.intersection(KeyShortcut.relevantModifiers).isEmpty
-        if plain, [49, 36, 76].contains(event.keyCode) { // space, return, enter
-            if !event.isARepeat {
-                HeldKeyGuard.swallowRepeats(of: event)
-                startRecording()
-            }
-        } else if plain, [51, 117].contains(event.keyCode) { // delete, forward delete
-            if !event.isARepeat, shortcut != nil {
-                HeldKeyGuard.swallowRepeats(of: event)
-                onRemove?()
-            }
-        } else {
-            super.keyDown(with: event)
-        }
-    }
-
-    // MARK: - Accessibility
-
-    override func isAccessibilityElement() -> Bool { true }
-    override func accessibilityRole() -> NSAccessibility.Role? { .button }
-
-    override func accessibilityLabel() -> String? {
-        if let shortcut { return "\(actionTitle) shortcut \(shortcut.displayString)" }
-        return "Add shortcut for \(actionTitle)"
-    }
-
-    override func accessibilityValue() -> Any? {
-        isRecording ? "Recording, type the new shortcut" : nil
-    }
-
-    override func accessibilityHelp() -> String? {
-        shortcut == nil ? "Records an additional shortcut." :
-            "Records a replacement shortcut. Press Delete to remove it."
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        isRecording ? stopRecording() : startRecording()
-        return true
-    }
-
-    // MARK: - Mouse
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let hit = super.hitTest(point) else { return nil }
-        return hit is NSButton ? hit : self
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        isRecording ? stopRecording() : startRecording()
-    }
-
-    @objc private func remove(_ sender: Any?) {
-        stopRecording()
-        onRemove?()
-    }
-
-    private func refresh() {
-        if isRecording {
-            label.stringValue = shortcut == nil ? "Type shortcut…" : "Type new shortcut…"
-            label.textColor = .secondaryLabelColor
-        } else {
-            label.stringValue = shortcut?.displayString ?? "+"
-            label.textColor = shortcut == nil ? .secondaryLabelColor : .labelColor
-        }
-        needsDisplay = true
-    }
-
-    private func startRecording() {
-        Self.recording?.stopRecording()
-        Self.recording = self
-        isRecording = true
-        refresh()
-        NSAccessibility.post(element: self, notification: .valueChanged)
-
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self.window else { return event }
-            // A key held since before recording started.
-            if event.isARepeat { return nil }
-            guard let shortcut = KeyShortcut(event: event) else {
-                NSSound.beep()
-                return nil
-            }
-            self.stopRecording()
-            HeldKeyGuard.swallowRepeats(of: event)
-            if shortcut == Self.cancelShortcut { return nil }
-            self.onRecord?(shortcut)
-            // ⌘Q, ⌘W… keep working: the menu handles them, they aren't recorded.
-            return ShortcutStore.shared.isReserved(shortcut) ? event : nil
-        }
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] event in
-            guard let self else { return event }
-            let inside = event.window === self.window &&
-                self.bounds.contains(self.convert(event.locationInWindow, from: nil))
-            if !inside { self.stopRecording() }
-            return event
-        }
-        resignObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification, object: window, queue: .main
-        ) { [weak self] _ in
-            self?.stopRecording()
-        }
-    }
-
-    private func stopRecording() {
-        guard isRecording else { return }
-        isRecording = false
-        if Self.recording === self { Self.recording = nil }
-        removeMonitors()
-        refresh()
-        NSAccessibility.post(element: self, notification: .valueChanged)
-    }
-
-    private func removeMonitors() {
-        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
-        keyMonitor = nil
-        mouseMonitor = nil
-        resignObserver = nil
     }
 }

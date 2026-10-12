@@ -10,8 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMenu()
         applyShortcuts()
-        NotificationCenter.default.addObserver(self, selector: #selector(applyShortcuts),
-                                               name: ShortcutStore.didChange, object: nil)
+        ShortcutStore.shared.notificationCenter.addObserver(
+            self, selector: #selector(applyShortcuts),
+            name: ShortcutStore.didChange, object: ShortcutStore.shared)
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
