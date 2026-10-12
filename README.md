@@ -47,6 +47,7 @@ To make it the default viewer for a format: select a file in Finder →
 | `⌘+` (or `⌘=`) / `⌘−` | Zoom in / out |
 | `⌘` + scroll, or pinch | Continuous zoom |
 | Double click | Toggle fit ↔ actual size |
+| `⌘O` | Open… |
 | `⌘C` | Copy image (bitmap + file) |
 | `⌘I` | Info sidebar (metadata, EXIF, GPS) |
 | `⌘⌫` | Move to Trash |
@@ -59,8 +60,9 @@ To make it the default viewer for a format: select a file in Finder →
 The keyboard shortcuts above (all but `⌘,`) can be changed in
 **Settings → Shortcuts** (`⌘,`); mouse gestures can't. Click a shortcut to
 record a new one, `+` to add another (up to four per action), `×` to remove
-it, or the reset arrow to restore an action's defaults. Any key can be
-recorded, Esc included; click elsewhere or press `⌘.` to cancel. The pane
+it, or the reset arrow to restore an action's defaults. **Show in Finder** has
+no default shortcut but can be given one. Almost any key can be recorded, Esc
+included; click elsewhere or press `⌘.` to cancel. The pane
 also works from the keyboard: Tab to a shortcut, Space or Return to record,
 Delete to remove it. Assigning a shortcut that another action uses moves it
 over. `⌘Q`, `⌘W`, `⌘H`, `⌥⌘H`, `⌘M` and `⌘,` stay reserved for the system.

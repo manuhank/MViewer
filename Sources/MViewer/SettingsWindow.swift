@@ -48,7 +48,7 @@ final class ShortcutsSettingsViewController: NSViewController {
 
         let intro = NSTextField(wrappingLabelWithString:
             "Click a shortcut to change it, + to add another, or × to remove it. " +
-            "Every key can be recorded, Esc included; click elsewhere or press ⌘. to cancel. " +
+            "Almost any key can be recorded, Esc included; click elsewhere or press ⌘. to cancel. " +
             "From the keyboard: Tab to a shortcut, then Space to record or Delete to remove it.")
         intro.textColor = .secondaryLabelColor
         intro.font = .systemFont(ofSize: 12)
@@ -139,9 +139,9 @@ final class ShortcutsSettingsViewController: NSViewController {
 
     private func record(_ shortcut: KeyShortcut, for action: ShortcutAction, replacing index: Int?) {
         let store = ShortcutStore.shared
-        let hadFocus = focusIsInTable
+        let hadFocus = focusIsInRows
         if store.isReserved(shortcut) {
-            NSSound.beep()
+            // The recorder already handed the key to the menu bar.
             statusLabel.stringValue = "\(shortcut.displayString) is reserved for the system."
             return
         }
@@ -155,14 +155,14 @@ final class ShortcutsSettingsViewController: NSViewController {
     }
 
     private func remove(at index: Int, from action: ShortcutAction) {
-        let hadFocus = focusIsInTable
+        let hadFocus = focusIsInRows
         statusLabel.stringValue = ""
         ShortcutStore.shared.remove(at: index, from: action)
         if hadFocus { restoreFocus(to: action, tokenIndex: index) }
     }
 
     private func reset(_ action: ShortcutAction) {
-        let hadFocus = focusIsInTable
+        let hadFocus = focusIsInRows
         let touched = ShortcutStore.shared.reset(action)
         let names = touched.map { "“\($0.title)”" }.joined(separator: ", ")
         statusLabel.stringValue = touched.isEmpty ? "" :
@@ -170,7 +170,7 @@ final class ShortcutsSettingsViewController: NSViewController {
         if hadFocus { restoreFocus(to: action, tokenIndex: 0) }
     }
 
-    private var focusIsInTable: Bool {
+    private var focusIsInRows: Bool {
         (view.window?.firstResponder as? NSView)?.isDescendant(of: rowsStack) == true
     }
 
@@ -180,8 +180,8 @@ final class ShortcutsSettingsViewController: NSViewController {
         return listViews.first { responder.isDescendant(of: $0.value) }?.key
     }
 
-    /// Rows are rebuilt after each change, which drops keyboard focus; put it
-    /// back on the same action so keyboard users keep their place.
+    /// A change replaces the action's shortcut list, which drops keyboard focus;
+    /// put it back on the same action so keyboard users keep their place.
     private func restoreFocus(to action: ShortcutAction, tokenIndex: Int) {
         guard let list = listViews[action] else { return }
         view.window?.makeFirstResponder(list.token(at: tokenIndex))
@@ -253,8 +253,8 @@ final class ShortcutsSettingsViewController: NSViewController {
         updateKeyViewLoop()
     }
 
-    /// Replaces only the lists whose shortcuts changed; an edit touches one
-    /// to three actions, and rebuilding every row stalls for ~100 ms.
+    /// Replaces only the lists whose shortcuts changed; most edits touch a few
+    /// actions, and rebuilding every row stalls for ~100 ms.
     private func updateChangedRows() {
         let store = ShortcutStore.shared
         let changed = ShortcutAction.allCases.filter { listViews[$0]?.shortcuts != store.shortcuts(for: $0) }
@@ -283,6 +283,28 @@ final class ShortcutsSettingsViewController: NSViewController {
             list.topAnchor.constraint(equalTo: rowView.topAnchor),
             list.bottomAnchor.constraint(equalTo: rowView.bottomAnchor),
         ])
+    }
+}
+
+/// Swallows auto-repeats of a key that was already acted on until it is
+/// released, so holding it doesn't re-trigger the menu, beep or move focus.
+private enum HeldKeyGuard {
+    private static var monitor: Any?
+
+    static func swallowRepeats(of event: NSEvent) {
+        stop()
+        let keyCode = event.keyCode
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
+            guard event.keyCode == keyCode else { return event }
+            if event.type == .keyDown && event.isARepeat { return nil }
+            stop() // released, or pressed again (a key-up was missed)
+            return event
+        }
+    }
+
+    private static func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }
 
@@ -466,12 +488,19 @@ final class ShortcutTokenView: NSView {
 
     override func keyDown(with event: NSEvent) {
         // Repeats of a held key are ignored: holding Space would toggle
-        // recording, holding Delete would remove every shortcut in turn.
+        // recording, holding Delete would remove every shortcut in turn. Delete
+        // on the add token does nothing (no beep).
         let plain = event.modifierFlags.intersection(KeyShortcut.relevantModifiers).isEmpty
         if plain, [49, 36, 76].contains(event.keyCode) { // space, return, enter
-            if !event.isARepeat { startRecording() }
-        } else if plain, shortcut != nil, [51, 117].contains(event.keyCode) { // delete, forward delete
-            if !event.isARepeat { onRemove?() }
+            if !event.isARepeat {
+                HeldKeyGuard.swallowRepeats(of: event)
+                startRecording()
+            }
+        } else if plain, [51, 117].contains(event.keyCode) { // delete, forward delete
+            if !event.isARepeat, shortcut != nil {
+                HeldKeyGuard.swallowRepeats(of: event)
+                onRemove?()
+            }
         } else {
             super.keyDown(with: event)
         }
@@ -537,18 +566,18 @@ final class ShortcutTokenView: NSView {
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window else { return event }
-            // A repeat of the key that started recording (held Space/Return).
+            // A key held since before recording started.
             if event.isARepeat { return nil }
             guard let shortcut = KeyShortcut(event: event) else {
                 NSSound.beep()
                 return nil
             }
             self.stopRecording()
+            HeldKeyGuard.swallowRepeats(of: event)
             if shortcut == Self.cancelShortcut { return nil }
-            // ⌘Q, ⌘W… keep working: hand them to the menu instead of recording.
-            if ShortcutStore.shared.isReserved(shortcut) { return event }
             self.onRecord?(shortcut)
-            return nil
+            // ⌘Q, ⌘W… keep working: the menu handles them, they aren't recorded.
+            return ShortcutStore.shared.isReserved(shortcut) ? event : nil
         }
         mouseMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]

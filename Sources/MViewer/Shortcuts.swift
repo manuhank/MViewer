@@ -80,8 +80,12 @@ struct KeyShortcut: Codable, Hashable {
             119: SpecialKey(name: "end", display: "↘", menu: function(NSEndFunctionKey)),
             116: SpecialKey(name: "pageUp", display: "⇞", menu: function(NSPageUpFunctionKey)),
             121: SpecialKey(name: "pageDown", display: "⇟", menu: function(NSPageDownFunctionKey)),
+            114: SpecialKey(name: "help", display: "Help", menu: function(NSHelpFunctionKey)),
+            71: SpecialKey(name: "clear", display: "⌧", menu: function(NSClearLineFunctionKey)),
         ]
-        let fKeyCodes: [UInt16] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111]
+        // F1–F19; their NSF…FunctionKey constants are consecutive.
+        let fKeyCodes: [UInt16] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111,
+                                   105, 107, 113, 106, 64, 79, 80]
         for (index, code) in fKeyCodes.enumerated() {
             keys[code] = SpecialKey(name: "f\(index + 1)", display: "F\(index + 1)",
                                     menu: function(NSF1FunctionKey + index))
@@ -228,8 +232,9 @@ final class ShortcutStore {
         bindings[action] ?? []
     }
 
+    /// Order doesn't matter: removing a default and adding it back is still default.
     func isDefault(_ action: ShortcutAction) -> Bool {
-        shortcuts(for: action) == action.defaultShortcuts
+        Set(shortcuts(for: action)) == Set(action.defaultShortcuts)
     }
 
     func isReserved(_ shortcut: KeyShortcut) -> Bool {

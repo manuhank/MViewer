@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   another action is moved to the new one. Custom shortcuts are reflected in
   the menu bar and the keyboard shortcuts overlay.
 - `⌘=` now also zooms in, alongside `⌘+`.
+- Standard **Hide Others** (`⌥⌘H`) and **Show All** items in the MViewer menu.
 
 ## [1.5.0] - 2026-08-01
 
