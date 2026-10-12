@@ -34,6 +34,11 @@ struct KeyShortcut: Codable, Hashable {
 
     var modifierFlags: NSEvent.ModifierFlags { NSEvent.ModifierFlags(rawValue: modifiers) }
 
+    /// Same form `init?(event:)` produces: lowercased character, masked modifiers.
+    var normalized: KeyShortcut {
+        KeyShortcut(Self.specialKey(named: key) == nil ? key.lowercased() : key, modifierFlags)
+    }
+
     var displayString: String {
         let flags = modifierFlags
         var out = ""
@@ -204,10 +209,15 @@ final class ShortcutStore {
         var claimed = Set<KeyShortcut>()
         for action in ShortcutAction.allCases {
             guard let entries = saved[action.rawValue] else { continue }
-            let list = entries.compactMap(\.value)
-                .map { KeyShortcut($0.key, $0.modifierFlags) }
-                .filter { !$0.key.isEmpty && !Self.reserved.contains($0) && claimed.insert($0).inserted }
-            bindings[action] = Array(list.prefix(Self.maxShortcutsPerAction))
+            var seen = Set<KeyShortcut>()
+            let valid = entries.compactMap { $0.value?.normalized }
+                .filter { !$0.key.isEmpty && !Self.reserved.contains($0) && seen.insert($0).inserted }
+                .prefix(Self.maxShortcutsPerAction)
+            let list = valid.filter { claimed.insert($0).inserted }
+            // A saved list with nothing usable left falls back to the defaults;
+            // an empty one means the user removed every shortcut.
+            if list.isEmpty && !entries.isEmpty { continue }
+            bindings[action] = list
         }
         for action in ShortcutAction.allCases where bindings[action] == nil {
             bindings[action] = action.defaultShortcuts.filter { claimed.insert($0).inserted }
@@ -265,10 +275,14 @@ final class ShortcutStore {
         commit()
     }
 
-    func reset(_ action: ShortcutAction) {
-        takeAway(action.defaultShortcuts, except: action)
+    /// Restores the action's defaults, taking them from other actions;
+    /// returns the actions they were taken from.
+    @discardableResult
+    func reset(_ action: ShortcutAction) -> [ShortcutAction] {
+        let touched = takeAway(action.defaultShortcuts, except: action)
         bindings[action] = action.defaultShortcuts
         commit()
+        return touched
     }
 
     func resetAll() {

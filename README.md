@@ -56,12 +56,17 @@ To make it the default viewer for a format: select a file in Finder →
 | `Esc` | Exit full screen / close |
 | `⌘,` | Settings |
 
-Every keyboard shortcut above can be changed in **Settings → Shortcuts**
-(`⌘,`): click a shortcut to record a new one, `+` to add another (up to four
-per action), `×` to remove it, or the reset arrow to restore an action's
-defaults. Assigning a shortcut that another action uses moves it over.
-`⌘Q`, `⌘W`, `⌘H`, `⌥⌘H`, `⌘M` and `⌘,` stay reserved for the system. The
-help overlay and the menu bar always show your current shortcuts.
+The keyboard shortcuts above (all but `⌘,`) can be changed in
+**Settings → Shortcuts** (`⌘,`); mouse gestures can't. Click a shortcut to
+record a new one, `+` to add another (up to four per action), `×` to remove
+it, or the reset arrow to restore an action's defaults. Any key can be
+recorded, Esc included; click elsewhere or press `⌘.` to cancel. The pane
+also works from the keyboard: Tab to a shortcut, Space or Return to record,
+Delete to remove it. Assigning a shortcut that another action uses moves it
+over. `⌘Q`, `⌘W`, `⌘H`, `⌥⌘H`, `⌘M` and `⌘,` stay reserved for the system.
+
+The help overlay lists all your current shortcuts. Menu bar items show one
+shortcut each, preferring one with `⌘`, `⌃` or `⌥`.
 
 Right-click the image for **Show in Finder**, **Copy Image**, **Get Info** and
 **Move to Trash**. Drag & drop files or folders onto the window, or open from
