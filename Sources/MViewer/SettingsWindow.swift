@@ -174,6 +174,12 @@ final class ShortcutsSettingsViewController: NSViewController {
         (view.window?.firstResponder as? NSView)?.isDescendant(of: rowsStack) == true
     }
 
+    /// The action whose shortcuts have keyboard focus, if any.
+    private var focusedAction: ShortcutAction? {
+        guard let responder = view.window?.firstResponder as? NSView else { return nil }
+        return listViews.first { responder.isDescendant(of: $0.value) }?.key
+    }
+
     /// Rows are rebuilt after each change, which drops keyboard focus; put it
     /// back on the same action so keyboard users keep their place.
     private func restoreFocus(to action: ShortcutAction, tokenIndex: Int) {
@@ -201,9 +207,11 @@ final class ShortcutsSettingsViewController: NSViewController {
         alert.addButton(withTitle: "Restore Defaults")
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
+            guard let self, response == .alertFirstButtonReturn else { return }
+            let focused = self.focusedAction
             ShortcutStore.shared.resetAll()
-            self?.statusLabel.stringValue = ""
+            self.statusLabel.stringValue = ""
+            if let focused { self.restoreFocus(to: focused, tokenIndex: 0) }
         }
     }
 
@@ -457,11 +465,13 @@ final class ShortcutTokenView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Repeats of a held key are ignored: holding Space would toggle
+        // recording, holding Delete would remove every shortcut in turn.
         let plain = event.modifierFlags.intersection(KeyShortcut.relevantModifiers).isEmpty
         if plain, [49, 36, 76].contains(event.keyCode) { // space, return, enter
-            startRecording()
+            if !event.isARepeat { startRecording() }
         } else if plain, shortcut != nil, [51, 117].contains(event.keyCode) { // delete, forward delete
-            onRemove?()
+            if !event.isARepeat { onRemove?() }
         } else {
             super.keyDown(with: event)
         }
@@ -527,6 +537,8 @@ final class ShortcutTokenView: NSView {
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window else { return event }
+            // A repeat of the key that started recording (held Space/Return).
+            if event.isARepeat { return nil }
             guard let shortcut = KeyShortcut(event: event) else {
                 NSSound.beep()
                 return nil
