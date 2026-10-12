@@ -45,7 +45,7 @@ final class ShortcutsSettingsViewController: NSViewController, NSTableViewDataSo
 
         let intro = NSTextField(wrappingLabelWithString:
             "Click a shortcut to change it, + to add another, or × to remove it. " +
-            "Press Esc to cancel recording.")
+            "Every key can be recorded, Esc included; click elsewhere to cancel.")
         intro.textColor = .secondaryLabelColor
         intro.font = .systemFont(ofSize: 12)
 
@@ -128,7 +128,7 @@ final class ShortcutsSettingsViewController: NSViewController, NSTableViewDataSo
         let store = ShortcutStore.shared
         if store.isReserved(shortcut) {
             NSSound.beep()
-            statusLabel.stringValue = "\(shortcut.displayString) is reserved by macOS."
+            statusLabel.stringValue = "\(shortcut.displayString) is reserved for the system."
             return
         }
         if let owner = store.assign(shortcut, to: action, replacing: index) {
@@ -375,15 +375,14 @@ final class ShortcutTokenView: NSView {
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window else { return event }
-            if event.keyCode == 53,
-               event.modifierFlags.intersection(KeyShortcut.relevantModifiers).isEmpty {
-                self.stopRecording()
-            } else if let shortcut = KeyShortcut(event: event) {
-                self.stopRecording()
-                self.onRecord?(shortcut)
-            } else {
+            guard let shortcut = KeyShortcut(event: event) else {
                 NSSound.beep()
+                return nil
             }
+            self.stopRecording()
+            // ⌘Q, ⌘W… keep working: hand them to the menu instead of recording.
+            if ShortcutStore.shared.isReserved(shortcut) { return event }
+            self.onRecord?(shortcut)
             return nil
         }
         mouseMonitor = NSEvent.addLocalMonitorForEvents(

@@ -142,7 +142,7 @@ enum ShortcutAction: String, CaseIterable {
         }
     }
 
-    /// The first default is the one shown in the menu bar.
+    /// The first default with a modifier is the one shown in the menu bar.
     var defaultShortcuts: [KeyShortcut] {
         switch self {
         case .previousFile: return [KeyShortcut("left"), KeyShortcut("up")]
@@ -183,14 +183,34 @@ final class ShortcutStore {
 
     private var bindings: [ShortcutAction: [KeyShortcut]] = [:]
 
+    /// Decodes one saved shortcut, so a bad entry doesn't discard the rest.
+    private struct LossyShortcut: Decodable {
+        let value: KeyShortcut?
+
+        init(from decoder: Decoder) throws {
+            value = try? KeyShortcut(from: decoder)
+        }
+    }
+
     private init() {
-        var saved: [String: [KeyShortcut]] = [:]
+        var saved: [String: [LossyShortcut]] = [:]
         if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
-           let decoded = try? JSONDecoder().decode([String: [KeyShortcut]].self, from: data) {
+           let decoded = try? JSONDecoder().decode([String: [LossyShortcut]].self, from: data) {
             saved = decoded
         }
+
+        // Customized actions claim their shortcuts first, so a default added in
+        // a later version never duplicates a shortcut the user picked.
+        var claimed = Set<KeyShortcut>()
         for action in ShortcutAction.allCases {
-            bindings[action] = saved[action.rawValue] ?? action.defaultShortcuts
+            guard let entries = saved[action.rawValue] else { continue }
+            let list = entries.compactMap(\.value)
+                .map { KeyShortcut($0.key, $0.modifierFlags) }
+                .filter { !$0.key.isEmpty && !Self.reserved.contains($0) && claimed.insert($0).inserted }
+            bindings[action] = Array(list.prefix(Self.maxShortcutsPerAction))
+        }
+        for action in ShortcutAction.allCases where bindings[action] == nil {
+            bindings[action] = action.defaultShortcuts.filter { claimed.insert($0).inserted }
         }
     }
 
@@ -210,8 +230,13 @@ final class ShortcutStore {
         ShortcutAction.allCases.first { shortcuts(for: $0).contains(shortcut) }
     }
 
+    /// Exact match first; otherwise Shift alone is ignored, so ⇧← still goes
+    /// back unless ⇧← has a binding of its own.
     func action(matching event: NSEvent) -> ShortcutAction? {
-        KeyShortcut(event: event).flatMap { action(for: $0) }
+        guard let shortcut = KeyShortcut(event: event) else { return nil }
+        if let action = action(for: shortcut) { return action }
+        guard shortcut.modifierFlags == .shift else { return nil }
+        return action(for: KeyShortcut(shortcut.key))
     }
 
     /// Binds `shortcut` to `action`, replacing the shortcut at `index` or
@@ -283,9 +308,12 @@ final class ShortcutStore {
 }
 
 extension NSMenuItem {
-    /// Shows the action's first shortcut, or none.
+    /// Shows the action's first shortcut with a modifier (usable from any
+    /// window), else its first shortcut, or none.
     func applyShortcut(of action: ShortcutAction) {
-        if let shortcut = ShortcutStore.shared.shortcuts(for: action).first {
+        let shortcuts = ShortcutStore.shared.shortcuts(for: action)
+        let modified = shortcuts.first { !$0.modifierFlags.isDisjoint(with: [.command, .control, .option]) }
+        if let shortcut = modified ?? shortcuts.first {
             keyEquivalent = shortcut.menuKeyEquivalent
             keyEquivalentModifierMask = shortcut.modifierFlags
         } else {
