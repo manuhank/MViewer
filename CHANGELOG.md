@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Settings window (⌘,) with a Shortcuts pane to customize every keyboard
+  shortcut: record new keys, add up to four shortcuts per action, remove them,
+  or restore defaults per action or all at once. A shortcut already used by
+  another action is moved to the new one. Custom shortcuts are reflected in
+  the menu bar and the keyboard shortcuts overlay.
+- `⌘=` now also zooms in, alongside `⌘+`.
+
 ## [1.5.0] - 2026-08-01
 
 ### Changed

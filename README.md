@@ -41,10 +41,10 @@ To make it the default viewer for a format: select a file in Finder →
 |---|---|
 | `←` `→` (or `↑` `↓`) | Previous / next file in folder |
 | `Space` | Next file (video: play/pause) |
-| `F` | Full screen |
+| `F` / `⌃⌘F` | Full screen |
 | `0` / `⌘0` | Zoom to fit |
 | `1` / `⌘1` | Actual size (pixel-perfect) |
-| `⌘+` / `⌘−` | Zoom in / out |
+| `⌘+` (or `⌘=`) / `⌘−` | Zoom in / out |
 | `⌘` + scroll, or pinch | Continuous zoom |
 | Double click | Toggle fit ↔ actual size |
 | `⌘C` | Copy image (bitmap + file) |
@@ -54,6 +54,14 @@ To make it the default viewer for a format: select a file in Finder →
 | `H` / `?` / `⌘/` | Keyboard shortcuts overlay |
 | `A` | About / version overlay |
 | `Esc` | Exit full screen / close |
+| `⌘,` | Settings |
+
+Every keyboard shortcut above can be changed in **Settings → Shortcuts**
+(`⌘,`): click a shortcut to record a new one, `+` to add another (up to four
+per action), `×` to remove it, or the reset arrow to restore an action's
+defaults. Assigning a shortcut that another action uses moves it over.
+`⌘Q`, `⌘W`, `⌘H`, `⌥⌘H`, `⌘M` and `⌘,` stay reserved for the system. The
+help overlay and the menu bar always show your current shortcuts.
 
 Right-click the image for **Show in Finder**, **Copy Image**, **Get Info** and
 **Move to Trash**. Drag & drop files or folders onto the window, or open from
