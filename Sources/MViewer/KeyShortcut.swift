@@ -67,8 +67,9 @@ struct KeyShortcut: Codable, Hashable {
 // MARK: - Non-printing keys
 
 extension KeyShortcut {
-    // These names are what UserDefaults stores for custom shortcuts: never
-    // rename them, or saved shortcuts stop matching.
+    // The key strings ("left", "return"…, and "f1"–"f19" below) are what
+    // UserDefaults stores for custom shortcuts: never change them, or saved
+    // shortcuts stop matching. The Swift constant names can change freely.
     static let left = KeyShortcut("left")
     static let right = KeyShortcut("right")
     static let down = KeyShortcut("down")

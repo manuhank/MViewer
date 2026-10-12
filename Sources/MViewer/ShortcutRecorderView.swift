@@ -1,7 +1,7 @@
 import AppKit
 
 /// A keycap that records a new shortcut when clicked, or with Space/Return
-/// when focused (Delete removes it). With no shortcut it is the "+" add token.
+/// when focused (Delete removes it). With no shortcut it is the "+" add recorder.
 /// Knows nothing about the app's actions or store: it reports through its
 /// callbacks.
 final class ShortcutRecorderView: NSView {
@@ -44,7 +44,7 @@ final class ShortcutRecorderView: NSView {
         stack.spacing = 2
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: shortcut == nil ? 8 : 4)
         if let shortcut {
-            let remove = symbolButton("xmark.circle.fill", target: self, action: #selector(remove(_:)))
+            let remove = NSButton.symbol("xmark.circle.fill", target: self, action: #selector(remove(_:)))
             remove.imageScaling = .scaleProportionallyDown
             remove.contentTintColor = .tertiaryLabelColor
             remove.toolTip = "Remove shortcut"
@@ -107,7 +107,7 @@ final class ShortcutRecorderView: NSView {
     override func keyDown(with event: NSEvent) {
         // Repeats of a held key are ignored: holding Space would toggle
         // recording, holding Delete would remove every shortcut in turn. Delete
-        // on the add token does nothing (no beep).
+        // on the add recorder does nothing (no beep).
         switch KeyShortcut(event: event) {
         case .space?, .returnKey?, .enter?:
             guard !event.isARepeat else { return }
@@ -253,14 +253,16 @@ private enum HeldKeyGuard {
     }
 }
 
-/// Borderless symbol button. Built without `NSButton(image:target:action:)`,
-/// whose sizeToFit measures the symbol slowly (~5x the cost of this).
-func symbolButton(_ symbol: String, target: AnyObject, action: Selector) -> NSButton {
-    let button = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
-    button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-    button.imagePosition = .imageOnly
-    button.isBordered = false
-    button.target = target
-    button.action = action
-    return button
+extension NSButton {
+    /// Borderless symbol button. Built without `NSButton(image:target:action:)`,
+    /// whose sizeToFit measures the symbol slowly (~5x the cost of this).
+    static func symbol(_ name: String, target: AnyObject, action: Selector) -> NSButton {
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        button.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.target = target
+        button.action = action
+        return button
+    }
 }

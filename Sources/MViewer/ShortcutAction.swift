@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Every action whose keyboard shortcuts can be customized in Settings.
 /// Raw values are the keys custom shortcuts are saved under: don't rename.

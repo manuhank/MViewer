@@ -3,7 +3,7 @@ import AppKit
 /// Current shortcut bindings. Only customized actions are persisted, so
 /// untouched actions pick up new defaults in later versions.
 final class ShortcutStore {
-    static let shared = ShortcutStore()
+    static let shared = ShortcutStore(defaults: .standard, notificationCenter: .default)
     static let didChange = Notification.Name("ShortcutStoreDidChange")
     static let maxShortcutsPerAction = 4
 
@@ -29,7 +29,9 @@ final class ShortcutStore {
         }
     }
 
-    init(defaults: UserDefaults = .standard, notificationCenter: NotificationCenter = .default) {
+    /// Use `shared`; a second store on the same defaults would drift from it.
+    /// Other instances are for isolated defaults (tests).
+    init(defaults: UserDefaults, notificationCenter: NotificationCenter) {
         self.defaults = defaults
         self.notificationCenter = notificationCenter
 
@@ -161,10 +163,14 @@ final class ShortcutStore {
 
 extension NSMenuItem {
     /// Shows the action's first shortcut that works from any window, else its
-    /// first shortcut, or none.
-    func applyShortcut(of action: ShortcutAction, from store: ShortcutStore = .shared) {
+    /// first shortcut, or none. Pass `allowsPlainKey: false` for items enabled
+    /// in every window (e.g. Open…): a plain key there would fire while typing
+    /// a shortcut in Settings, since menu key equivalents come first.
+    func applyShortcut(of action: ShortcutAction, from store: ShortcutStore = .shared,
+                       allowsPlainKey: Bool = true) {
         let shortcuts = store.shortcuts(for: action)
-        if let shortcut = shortcuts.first(where: \.hasNonShiftModifier) ?? shortcuts.first {
+        let plain = allowsPlainKey ? shortcuts.first : nil
+        if let shortcut = shortcuts.first(where: \.hasNonShiftModifier) ?? plain {
             keyEquivalent = shortcut.menuKeyEquivalent
             keyEquivalentModifierMask = shortcut.modifierFlags
         } else {

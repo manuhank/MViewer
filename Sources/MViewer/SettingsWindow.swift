@@ -210,11 +210,11 @@ final class ShortcutsSettingsViewController: NSViewController {
 
     /// Runs an edit, which replaces the edited action's shortcut list and so
     /// drops keyboard focus. If focus was in the rows, puts it back on the
-    /// token the edit returns, so keyboard users keep their place.
-    private func keepingFocus(_ edit: () -> (action: ShortcutAction, tokenIndex: Int)?) {
+    /// recorder the edit returns, so keyboard users keep their place.
+    private func keepingFocus(_ edit: () -> (action: ShortcutAction, recorderIndex: Int)?) {
         let focusWasInRows = (view.window?.firstResponder as? NSView)?.isDescendant(of: rowsStack) == true
         guard let target = edit(), focusWasInRows, let list = listViews[target.action] else { return }
-        view.window?.makeFirstResponder(list.token(at: target.tokenIndex))
+        view.window?.makeFirstResponder(list.recorder(at: target.recorderIndex))
     }
 
     /// The action whose shortcuts have keyboard focus, if any.
@@ -233,7 +233,7 @@ final class ShortcutsSettingsViewController: NSViewController {
             if case .action(let action) = row { return action }
             return nil
         }.first
-        window.initialFirstResponder = firstAction.flatMap { listViews[$0]?.token(at: 0) }
+        window.initialFirstResponder = firstAction.flatMap { listViews[$0]?.recorder(at: 0) }
     }
 
     // MARK: - Rows
@@ -326,28 +326,28 @@ private final class ShortcutListView: NSView {
 
     /// The shortcuts this list shows, to tell when it is out of date.
     let shortcuts: [KeyShortcut]
-    private var tokens: [ShortcutRecorderView] = []
+    private var recorders: [ShortcutRecorderView] = []
 
     init(shortcuts: [KeyShortcut], actionTitle: String, isCustomized: Bool, maxCount: Int,
          passesThrough: @escaping (KeyShortcut) -> Bool) {
         self.shortcuts = shortcuts
         super.init(frame: .zero)
 
-        tokens = shortcuts.enumerated().map { index, shortcut in
-            let token = ShortcutRecorderView(shortcut: shortcut, actionTitle: actionTitle)
-            token.onRecord = { [weak self] in self?.onRecord?($0, index) }
-            token.onRemove = { [weak self] in self?.onRemove?(index) }
-            return token
+        recorders = shortcuts.enumerated().map { index, shortcut in
+            let recorder = ShortcutRecorderView(shortcut: shortcut, actionTitle: actionTitle)
+            recorder.onRecord = { [weak self] in self?.onRecord?($0, index) }
+            recorder.onRemove = { [weak self] in self?.onRemove?(index) }
+            return recorder
         }
         if shortcuts.count < maxCount {
             let add = ShortcutRecorderView(shortcut: nil, actionTitle: actionTitle)
             add.toolTip = "Add a shortcut"
             add.onRecord = { [weak self] in self?.onRecord?($0, nil) }
-            tokens.append(add)
+            recorders.append(add)
         }
-        tokens.forEach { $0.passesThrough = passesThrough }
+        recorders.forEach { $0.passesThrough = passesThrough }
 
-        let stack = NSStackView(views: tokens)
+        let stack = NSStackView(views: recorders)
         stack.orientation = .horizontal
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -358,7 +358,7 @@ private final class ShortcutListView: NSView {
         ])
 
         guard isCustomized else { return }
-        let reset = symbolButton("arrow.counterclockwise", target: self, action: #selector(reset(_:)))
+        let reset = NSButton.symbol("arrow.counterclockwise", target: self, action: #selector(reset(_:)))
         reset.setAccessibilityLabel("Restore default shortcuts for \(actionTitle)")
         reset.contentTintColor = .secondaryLabelColor
         reset.toolTip = "Restore default"
@@ -375,9 +375,9 @@ private final class ShortcutListView: NSView {
 
     @objc private func reset(_ sender: Any?) { onReset?() }
 
-    /// The token at `index`, clamped to the last one (the add token, if any).
-    /// Never empty: with no shortcuts there is always the add token.
-    func token(at index: Int) -> NSView {
-        tokens[min(max(index, 0), tokens.count - 1)]
+    /// The recorder at `index`, clamped to the last one (the add recorder, if
+    /// any). Never empty: with no shortcuts there is always the add recorder.
+    func recorder(at index: Int) -> NSView {
+        recorders[min(max(index, 0), recorders.count - 1)]
     }
 }

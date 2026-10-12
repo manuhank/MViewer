@@ -5,7 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let viewer = ViewerWindowController()
     private var openedSomething = false
     private lazy var settings = SettingsWindowController()
-    private var shortcutMenuItems: [(NSMenuItem, ShortcutAction)] = []
+    private var shortcutMenuItems: [(item: NSMenuItem, action: ShortcutAction, allowsPlainKey: Bool)] = []
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMenu()
@@ -60,8 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func applyShortcuts() {
-        for (item, action) in shortcutMenuItems {
-            item.applyShortcut(of: action)
+        for entry in shortcutMenuItems {
+            entry.item.applyShortcut(of: entry.action, allowsPlainKey: entry.allowsPlainKey)
         }
     }
 
@@ -92,8 +92,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(submenu(appMenu, title: "MViewer"))
 
         let fileMenu = NSMenu(title: "File")
+        // Handled by the app delegate, so enabled in every window: no plain keys.
         addItem(to: fileMenu, title: "Open…",
-                action: #selector(AppDelegate.openDocument(_:)), shortcut: .openFile)
+                action: #selector(AppDelegate.openDocument(_:)), shortcut: .openFile, allowsPlainKey: false)
         fileMenu.addItem(.separator())
         addItem(to: fileMenu, title: "Copy Image",
                 action: #selector(ViewerWindowController.copyImage(_:)), shortcut: .copyImage)
@@ -146,9 +147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Adds an item whose key equivalent follows the customizable shortcut.
-    private func addItem(to menu: NSMenu, title: String, action: Selector, shortcut: ShortcutAction) {
+    private func addItem(to menu: NSMenu, title: String, action: Selector, shortcut: ShortcutAction,
+                         allowsPlainKey: Bool = true) {
         let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
-        shortcutMenuItems.append((item, shortcut))
+        shortcutMenuItems.append((item, shortcut, allowsPlainKey))
     }
 
     private func submenu(_ menu: NSMenu, title: String) -> NSMenuItem {
