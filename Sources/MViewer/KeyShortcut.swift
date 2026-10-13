@@ -21,6 +21,10 @@ struct KeyShortcut: Codable, Hashable {
             self.init(special.name, flags)
             return
         }
+        // Globe/fn with a printable key is a system shortcut (🌐⌃F tiles the
+        // window…); fn is always set on the special keys above, so it can't be
+        // part of a binding. Leave those keys alone.
+        if event.modifierFlags.contains(.function) { return nil }
         guard let chars = event.charactersIgnoringModifiers?.lowercased(),
               chars.count == 1, let scalar = chars.unicodeScalars.first,
               scalar.value >= 0x20, scalar.value != 0x7F,

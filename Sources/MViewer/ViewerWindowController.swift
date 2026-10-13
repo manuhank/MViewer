@@ -635,12 +635,16 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
+        let action = ShortcutStore.shared.action(matching: event)
         if !shortcutsOverlay.isHidden || !aboutOverlay.isHidden {
             setShortcutsVisible(false)
             aboutOverlay.isHidden = true
-            return true
+            // Plain keys only dismiss. ⌘/⌃/⌥ combos also do their job (⌘, opens
+            // Settings, ⌘Q quits…), except the one that would reopen this help.
+            let modified = !event.modifierFlags.isDisjoint(with: [.command, .control, .option])
+            guard modified, action != .showShortcuts else { return true }
         }
-        guard let action = ShortcutStore.shared.action(matching: event) else { return false }
+        guard let action else { return false }
         perform(action)
         return true
     }

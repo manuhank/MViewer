@@ -148,8 +148,10 @@ final class ShortcutStore {
     }
 
     private func commit() {
+        // Saved whenever the list differs from the defaults, order included:
+        // the order picks the menu bar shortcut. (isDefault ignores order.)
         var custom: [String: [KeyShortcut]] = [:]
-        for action in ShortcutAction.allCases where !isDefault(action) {
+        for action in ShortcutAction.allCases where shortcuts(for: action) != action.defaultShortcuts {
             custom[action.rawValue] = shortcuts(for: action)
         }
         if custom.isEmpty {
@@ -164,8 +166,9 @@ final class ShortcutStore {
 extension NSMenuItem {
     /// Shows the action's first shortcut that works from any window, else its
     /// first shortcut, or none. Pass `allowsPlainKey: false` for items enabled
-    /// in every window (e.g. Open…): a plain key there would fire while typing
-    /// a shortcut in Settings, since menu key equivalents come first.
+    /// in every window (e.g. Open…): menu key equivalents come before keyDown,
+    /// so a plain key bound there (Space, Delete…) would fire the item instead
+    /// of reaching a focused shortcut recorder in Settings.
     func applyShortcut(of action: ShortcutAction, from store: ShortcutStore = .shared,
                        allowsPlainKey: Bool = true) {
         let shortcuts = store.shortcuts(for: action)

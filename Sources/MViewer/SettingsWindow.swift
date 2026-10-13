@@ -16,6 +16,8 @@ final class SettingsWindowController: NSWindowController {
         window.toolbarStyle = .preference
         window.title = "Settings"
         window.isReleasedWhenClosed = false
+        // Opens over a full-screen viewer and on the current Space.
+        window.collectionBehavior.formUnion([.fullScreenAuxiliary, .moveToActiveSpace])
         super.init(window: window)
         window.center()
     }
@@ -197,24 +199,31 @@ final class ShortcutsSettingsViewController: NSViewController {
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn else { return }
-            let focused = self.focusedAction
             self.keepingFocus {
                 self.store.resetAll()
                 self.statusLabel.stringValue = ""
-                return focused.map { ($0, 0) }
+                return nil
             }
         }
     }
 
     // MARK: - Focus
 
-    /// Runs an edit, which replaces the edited action's shortcut list and so
-    /// drops keyboard focus. If focus was in the rows, puts it back on the
-    /// recorder the edit returns, so keyboard users keep their place.
+    /// Runs an edit, which replaces the shortcut lists it changes. If that
+    /// removed the focused recorder, puts keyboard focus back on the same
+    /// action: on the recorder the edit returns when it edited that action
+    /// (keyboard edits), else at the old position. Focus elsewhere is left
+    /// alone, so a mouse edit in another row doesn't move it.
     private func keepingFocus(_ edit: () -> (action: ShortcutAction, recorderIndex: Int)?) {
-        let focusWasInRows = (view.window?.firstResponder as? NSView)?.isDescendant(of: rowsStack) == true
-        guard let target = edit(), focusWasInRows, let list = listViews[target.action] else { return }
-        view.window?.makeFirstResponder(list.recorder(at: target.recorderIndex))
+        let focused = view.window?.firstResponder as? NSView
+        let focusedAction = self.focusedAction
+        let oldIndex = focused.flatMap { view in
+            focusedAction.flatMap { listViews[$0]?.recorderIndex(containing: view) }
+        } ?? 0
+        let target = edit()
+        guard let action = focusedAction, focused?.window == nil, let list = listViews[action] else { return }
+        let index = target?.action == action ? target!.recorderIndex : oldIndex
+        view.window?.makeFirstResponder(list.recorder(at: index))
     }
 
     /// The action whose shortcuts have keyboard focus, if any.
@@ -379,5 +388,10 @@ private final class ShortcutListView: NSView {
     /// any). Never empty: with no shortcuts there is always the add recorder.
     func recorder(at index: Int) -> NSView {
         recorders[min(max(index, 0), recorders.count - 1)]
+    }
+
+    /// Position of the recorder that is or contains `view`, if any.
+    func recorderIndex(containing view: NSView) -> Int? {
+        recorders.firstIndex { view.isDescendant(of: $0) }
     }
 }
