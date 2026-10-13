@@ -70,8 +70,8 @@ over. `⌘Q`, `⌘W`, `⌘H`, `⌥⌘H`, `⌘M` and `⌘,` stay reserved for the
 
 The help overlay lists all your current shortcuts. Menu bar items show one
 shortcut each, preferring one with `⌘`, `⌃` or `⌥`; **Open…** only ever shows
-one with `⌘`, `⌃` or `⌥`, since it works in every window. Globe (fn)
-combinations with letter keys can't be recorded.
+one with `⌘`, `⌃` or `⌥`, since it works in every window. Globe (fn) plus a
+letter, number or symbol key can't be recorded and is left to the system.
 
 Right-click the image for **Show in Finder**, **Copy Image**, **Get Info** and
 **Move to Trash**. Drag & drop files or folders onto the window, or open from

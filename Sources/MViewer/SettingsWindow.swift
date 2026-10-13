@@ -210,20 +210,35 @@ final class ShortcutsSettingsViewController: NSViewController {
     // MARK: - Focus
 
     /// Runs an edit, which replaces the shortcut lists it changes. If that
-    /// removed the focused recorder, puts keyboard focus back on the same
-    /// action: on the recorder the edit returns when it edited that action
-    /// (keyboard edits), else at the old position. Focus elsewhere is left
-    /// alone, so a mouse edit in another row doesn't move it.
+    /// replaced the focused view, puts keyboard focus back in the same action,
+    /// in order of preference: the same shortcut if it survived; the recorder
+    /// the edit returns if it edited that action (keyboard record/Delete); the
+    /// reset arrow if it had focus and still exists; else the old position.
+    /// Focus elsewhere is left alone, so a mouse edit in another row doesn't
+    /// move it.
     private func keepingFocus(_ edit: () -> (action: ShortcutAction, recorderIndex: Int)?) {
         let focused = view.window?.firstResponder as? NSView
         let focusedAction = self.focusedAction
-        let oldIndex = focused.flatMap { view in
-            focusedAction.flatMap { listViews[$0]?.recorderIndex(containing: view) }
-        } ?? 0
+        let oldList = focusedAction.flatMap { listViews[$0] }
+        let oldIndex = focused.flatMap { oldList?.recorderIndex(containing: $0) }
+        let oldShortcut = oldIndex.flatMap { index in
+            oldList.flatMap { index < $0.shortcuts.count ? $0.shortcuts[index] : nil }
+        }
+
         let target = edit()
+
         guard let action = focusedAction, focused?.window == nil, let list = listViews[action] else { return }
-        let index = target?.action == action ? target!.recorderIndex : oldIndex
-        view.window?.makeFirstResponder(list.recorder(at: index))
+        let next: NSView
+        if let oldShortcut, let index = list.shortcuts.firstIndex(of: oldShortcut) {
+            next = list.recorder(at: index)
+        } else if let target, target.action == action {
+            next = list.recorder(at: target.recorderIndex)
+        } else if oldIndex == nil, let reset = list.resetButton {
+            next = reset
+        } else {
+            next = list.recorder(at: oldIndex ?? 0)
+        }
+        view.window?.makeFirstResponder(next)
     }
 
     /// The action whose shortcuts have keyboard focus, if any.
@@ -336,6 +351,8 @@ private final class ShortcutListView: NSView {
     /// The shortcuts this list shows, to tell when it is out of date.
     let shortcuts: [KeyShortcut]
     private var recorders: [ShortcutRecorderView] = []
+    /// Only customized actions have one.
+    private(set) var resetButton: NSButton?
 
     init(shortcuts: [KeyShortcut], actionTitle: String, isCustomized: Bool, maxCount: Int,
          passesThrough: @escaping (KeyShortcut) -> Bool) {
@@ -373,6 +390,7 @@ private final class ShortcutListView: NSView {
         reset.toolTip = "Restore default"
         reset.translatesAutoresizingMaskIntoConstraints = false
         addSubview(reset)
+        resetButton = reset
         NSLayoutConstraint.activate([
             reset.leadingAnchor.constraint(greaterThanOrEqualTo: stack.trailingAnchor, constant: 8),
             reset.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),

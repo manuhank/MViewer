@@ -54,7 +54,7 @@ final class ShortcutStore {
             // A saved list with nothing usable left falls back to the defaults;
             // an empty one means the user removed every shortcut.
             if list.isEmpty && !entries.isEmpty { continue }
-            bindings[action] = list
+            set(list, for: action)
         }
         for action in ShortcutAction.allCases where bindings[action] == nil {
             bindings[action] = action.defaultShortcuts.filter { claimed.insert($0).inserted }
@@ -65,9 +65,10 @@ final class ShortcutStore {
         bindings[action] ?? []
     }
 
-    /// Order doesn't matter: removing a default and adding it back is still default.
+    /// Order-insensitive in effect: a list with exactly the default shortcuts
+    /// is always stored in default order (see `set(_:for:)`).
     func isDefault(_ action: ShortcutAction) -> Bool {
-        Set(shortcuts(for: action)) == Set(action.defaultShortcuts)
+        shortcuts(for: action) == action.defaultShortcuts
     }
 
     func isReserved(_ shortcut: KeyShortcut) -> Bool {
@@ -99,7 +100,7 @@ final class ShortcutStore {
         } else {
             list.append(shortcut)
         }
-        bindings[action] = list.uniqued()
+        set(list.uniqued(), for: action)
         commit()
         return previousOwner
     }
@@ -107,7 +108,7 @@ final class ShortcutStore {
     func remove(at index: Int, from action: ShortcutAction) {
         guard var list = bindings[action], list.indices.contains(index) else { return }
         list.remove(at: index)
-        bindings[action] = list
+        set(list, for: action)
         commit()
     }
 
@@ -128,6 +129,14 @@ final class ShortcutStore {
         commit()
     }
 
+    /// Stores `list`, putting it back in default order when it holds exactly
+    /// the default shortcuts: removing a default and adding it back restores
+    /// the default menu shortcut, and the action counts as untouched again.
+    private func set(_ list: [KeyShortcut], for action: ShortcutAction) {
+        let defaults = action.defaultShortcuts
+        bindings[action] = Set(list) == Set(defaults) ? defaults : list
+    }
+
     private func owner(of shortcut: KeyShortcut) -> ShortcutAction? {
         ShortcutAction.allCases.first { shortcuts(for: $0).contains(shortcut) }
     }
@@ -140,7 +149,7 @@ final class ShortcutStore {
             let list = self.shortcuts(for: other)
             let kept = list.filter { !shortcuts.contains($0) }
             if kept.count != list.count {
-                bindings[other] = kept
+                set(kept, for: other)
                 touched.append(other)
             }
         }
@@ -148,10 +157,8 @@ final class ShortcutStore {
     }
 
     private func commit() {
-        // Saved whenever the list differs from the defaults, order included:
-        // the order picks the menu bar shortcut. (isDefault ignores order.)
         var custom: [String: [KeyShortcut]] = [:]
-        for action in ShortcutAction.allCases where shortcuts(for: action) != action.defaultShortcuts {
+        for action in ShortcutAction.allCases where !isDefault(action) {
             custom[action.rawValue] = shortcuts(for: action)
         }
         if custom.isEmpty {

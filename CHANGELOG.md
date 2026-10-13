@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `⌘=` now also zooms in, alongside `⌘+`.
 - Standard **Hide Others** (`⌥⌘H`) and **Show All** items in the MViewer menu.
 
+### Changed
+
+- With the keyboard shortcuts or About overlay open, `⌘`/`⌃`/`⌥` shortcuts
+  now close it and also run (e.g. `⌘,` opens Settings, `⌘⌫` moves the file to
+  the Trash); other keys still only close it.
+
 ## [1.5.0] - 2026-08-01
 
 ### Changed
