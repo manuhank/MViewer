@@ -312,11 +312,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
                 needsFull = true
             }
             guard needsFull else { return }
+            // Thumbnails wait until this is done, so they never slow it down.
+            ThumbnailLoader.shared.mainDecodeStarted()
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let full = MediaLoader.fullImage(url: url) else { return }
-                ImageCache.shared.setFull(full, for: url)
+                let full = MediaLoader.fullImage(url: url)
+                if let full { ImageCache.shared.setFull(full, for: url) }
                 DispatchQueue.main.async {
-                    guard let self, self.generation == gen else { return }
+                    ThumbnailLoader.shared.mainDecodeFinished()
+                    guard let full, let self, self.generation == gen else { return }
                     self.docView.updateContents(full)
                 }
             }

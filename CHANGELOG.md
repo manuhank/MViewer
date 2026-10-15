@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   folder, with the current one highlighted; click a thumbnail to jump to it.
   Toggle with `T` or View › Hide/Show Thumbnails (`⌥⌘T`); the choice is
   remembered. Shown only when the folder has more than one file. Thumbnails
-  are rendered by Quick Look for the visible part of the strip only.
+  are rendered by Quick Look in parallel for the visible part of the strip
+  only, and pause while the main image is decoding.
 
 ## [1.5.0] - 2026-08-01
 
