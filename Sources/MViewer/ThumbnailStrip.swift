@@ -63,8 +63,10 @@ final class ThumbnailStripView: NSView, NSCollectionViewDataSource {
         if widthChanged, files.indices.contains(currentIndex) { setCurrent(currentIndex) }
     }
 
-    /// Empties the strip, cancelling every queued thumbnail (cells are reused).
+    /// Empties the strip and cancels every queued thumbnail. (Emptying alone
+    /// doesn't: reloadData parks cells without calling prepareForReuse.)
     func clear() {
+        ThumbnailLoader.shared.cancelAll()
         files = []
         collectionView.reloadData()
     }

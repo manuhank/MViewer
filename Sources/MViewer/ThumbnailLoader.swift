@@ -47,6 +47,11 @@ final class ThumbnailLoader {
         return operation
     }
 
+    /// Cancels every queued and running request (the strip is the only user).
+    func cancelAll() {
+        queue.cancelAllOperations()
+    }
+
     private static func key(_ url: URL, _ scale: CGFloat) -> NSString {
         "\(scale)|\(url.path)" as NSString
     }
