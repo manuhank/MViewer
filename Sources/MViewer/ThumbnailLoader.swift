@@ -9,7 +9,8 @@ final class ThumbnailLoader {
     static let shared = ThumbnailLoader()
 
     private let queue = OperationQueue()
-    private let cache = NSCache<NSURL, NSImage>()
+    /// Keyed by scale and path: a 1x thumbnail is blurry on a Retina display.
+    private let cache = NSCache<NSString, NSImage>()
     private var mainDecodesInFlight = 0
     private var pendingResume: DispatchWorkItem?
 
@@ -26,27 +27,33 @@ final class ThumbnailLoader {
         cache.countLimit = 400
     }
 
-    func cached(_ url: URL) -> NSImage? {
-        cache.object(forKey: url as NSURL)
+    func cached(_ url: URL, scale: CGFloat) -> NSImage? {
+        cache.object(forKey: Self.key(url, scale))
     }
 
     /// Queues a thumbnail of `size` points. `completion` runs on the main
-    /// thread with nil if none could be made, and not at all if the returned
-    /// operation is cancelled first.
+    /// thread with the thumbnail, or the file's icon if none could be made
+    /// (cached too, so failures aren't retried), and not at all if the
+    /// returned operation is cancelled first.
     func load(_ url: URL, size: CGSize, scale: CGFloat,
-              completion: @escaping (NSImage?) -> Void) -> Operation {
-        let operation = ThumbnailOperation(url: url, size: size, scale: scale) { [cache] image in
-            if let image { cache.setObject(image, forKey: url as NSURL) }
-            return image
+              completion: @escaping (NSImage) -> Void) -> Operation {
+        let operation = ThumbnailOperation(url: url, size: size, scale: scale)
+        operation.completion = { [cache] image in
+            let image = image ?? NSWorkspace.shared.icon(forFile: url.path)
+            cache.setObject(image, forKey: Self.key(url, scale))
+            completion(image)
         }
-        operation.completion = completion
         queue.addOperation(operation)
         return operation
     }
 
+    private static func key(_ url: URL, _ scale: CGFloat) -> NSString {
+        "\(scale)|\(url.path)" as NSString
+    }
+
     // MARK: - Main image priority
 
-    /// Main thread. While any main decode is in flight no new thumbnail
+    /// Main thread. While any main image decode is in flight no new thumbnail
     /// request starts; ones already running finish (they are small).
     func mainDecodeStarted() {
         mainDecodesInFlight += 1
@@ -72,18 +79,17 @@ final class ThumbnailLoader {
 /// how many run at once and cancelling it cancels the request. If Quick Look
 /// fails, falls back to a small ImageIO decode (images only).
 private final class ThumbnailOperation: Operation, @unchecked Sendable {
+    /// Main thread; set before the operation is queued.
     var completion: ((NSImage?) -> Void)?
 
     private let url: URL
     private let request: QLThumbnailGenerator.Request
-    private let store: (NSImage?) -> NSImage?
     private let lock = NSLock()
     private var running = false
     private var done = false
 
-    init(url: URL, size: CGSize, scale: CGFloat, store: @escaping (NSImage?) -> NSImage?) {
+    init(url: URL, size: CGSize, scale: CGFloat) {
         self.url = url
-        self.store = store
         request = QLThumbnailGenerator.Request(fileAt: url, size: size, scale: scale,
                                                representationTypes: .thumbnail)
     }
@@ -98,12 +104,23 @@ private final class ThumbnailOperation: Operation, @unchecked Sendable {
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
             guard let self else { return }
             guard !self.isCancelled else { return self.finish() }
-            let image = self.store(representation?.nsImage ?? self.fallback())
-            DispatchQueue.main.async {
-                if !self.isCancelled { self.completion?(image) }
+            if let image = representation?.nsImage {
+                self.deliver(image)
+            } else {
+                // Quick Look delivers results on one serial queue: decode the
+                // fallback elsewhere so it doesn't hold up other thumbnails.
+                DispatchQueue.global(qos: .utility).async {
+                    self.deliver(self.isCancelled ? nil : self.fallback())
+                }
             }
-            self.finish()
         }
+    }
+
+    private func deliver(_ image: NSImage?) {
+        DispatchQueue.main.async {
+            if !self.isCancelled { self.completion?(image) }
+        }
+        finish()
     }
 
     override func cancel() {

@@ -222,6 +222,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         }
         guard let url = navigator?.current else {
             presentError(message: "No viewable files found in \(first.lastPathComponent)")
+            updateThumbnailStrip()
             return
         }
         display(url)
@@ -259,6 +260,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     private func showImage(_ url: URL) {
+        // Thumbnails wait while this image (preview and full decode) loads.
+        ThumbnailLoader.shared.mainDecodeStarted()
+        defer { ThumbnailLoader.shared.mainDecodeFinished() }
         let gen = generation
         teardownPlayer()
         scrollView.isHidden = false
@@ -513,6 +517,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     func windowDidChangeBackingProperties(_ notification: Notification) {
         if currentKind == .image { fitToWindow() }
+        // Thumbnails are rendered for the display's scale: redo them.
+        if thumbnailStripShown {
+            thumbnailStrip.clear()
+            updateThumbnailStrip()
+        }
     }
 
     // MARK: - Navigation
@@ -538,6 +547,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     // MARK: - Thumbnail strip
 
     @objc func toggleThumbnails(_ sender: Any?) {
+        guard (navigator?.count ?? 0) > 1 else { return }
         thumbnailsEnabled.toggle()
         UserDefaults.standard.set(thumbnailsEnabled, forKey: Self.thumbnailsKey)
         updateThumbnailStrip()
@@ -546,25 +556,25 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(toggleThumbnails(_:)) {
             menuItem.title = thumbnailsEnabled ? "Hide Thumbnails" : "Show Thumbnails"
+            return (navigator?.count ?? 0) > 1
         }
         return true
     }
 
-    /// Shown when enabled and there is more than one file; hidden it does no
-    /// work at all. Showing or hiding it resizes the media area.
+    /// Shown when enabled and there is more than one file. Hiding it empties
+    /// it, which cancels its queued thumbnails. Showing or hiding it resizes
+    /// the media area.
     private func updateThumbnailStrip() {
         let show = thumbnailsEnabled && (navigator?.count ?? 0) > 1
-        if let navigator, show {
-            thumbnailStrip.show(files: navigator.files, current: navigator.index)
+        if show != thumbnailStripShown {
+            thumbnailStripShown = show
+            layoutContent() // sizes the strip before it lays out its cells
+            if !show { thumbnailStrip.clear() }
+            if currentKind == .image { fitToWindow() }
         }
-        guard show != thumbnailStripShown else { return }
-        thumbnailStripShown = show
-        layoutContent()
         if show, let navigator {
-            // First layout at its real width, then center the current file.
             thumbnailStrip.show(files: navigator.files, current: navigator.index)
         }
-        if currentKind == .image { fitToWindow() }
     }
 
     // MARK: - Context menu & file actions

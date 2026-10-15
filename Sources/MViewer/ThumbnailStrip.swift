@@ -52,6 +52,23 @@ final class ThumbnailStripView: NSView, NSCollectionViewDataSource {
         layer?.backgroundColor = NSColor(calibratedWhite: 0.07, alpha: 1).cgColor
     }
 
+    /// Thumbnails act on the clicked file, not the one on screen, so the
+    /// viewer's context menu (Move to Trash…) must not open from here.
+    override func rightMouseDown(with event: NSEvent) {}
+
+    /// Keeps the current file in view when the window or sidebar resizes.
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if widthChanged, files.indices.contains(currentIndex) { setCurrent(currentIndex) }
+    }
+
+    /// Empties the strip, cancelling every queued thumbnail (cells are reused).
+    func clear() {
+        files = []
+        collectionView.reloadData()
+    }
+
     /// Shows `files`, reloading only if the list changed, and marks `current`.
     func show(files: [URL], current: Int) {
         if files != self.files {
@@ -71,6 +88,8 @@ final class ThumbnailStripView: NSView, NSCollectionViewDataSource {
         for i in [previous, index] {
             (collectionView.item(at: IndexPath(item: i, section: 0)) as? ThumbnailItem)?.isCurrent = i == index
         }
+        // Lay out at the current size first, or the scroll uses stale geometry.
+        collectionView.layoutSubtreeIfNeeded()
         collectionView.scrollToItems(at: [IndexPath(item: index, section: 0)],
                                      scrollPosition: .centeredHorizontally)
     }
@@ -93,14 +112,16 @@ final class ThumbnailStripView: NSView, NSCollectionViewDataSource {
     }
 }
 
-/// Scroll view that also scrolls sideways with a plain (vertical) mouse wheel.
+/// Scroll view that also scrolls sideways with a plain mouse wheel. Trackpad
+/// gestures (precise deltas) are left alone: they scroll sideways natively.
 private final class HorizontalScrollView: NSScrollView {
     override func scrollWheel(with event: NSEvent) {
-        guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX), let doc = documentView else {
+        guard !event.hasPreciseScrollingDeltas, abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX),
+              let doc = documentView else {
             super.scrollWheel(with: event)
             return
         }
-        let delta = event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1 : 10)
+        let delta = event.scrollingDeltaY * 10
         var origin = contentView.bounds.origin
         origin.x = min(max(origin.x - delta, 0), max(doc.frame.width - contentView.bounds.width, 0))
         contentView.scroll(to: origin)
@@ -159,7 +180,7 @@ private final class ThumbnailItem: NSCollectionViewItem {
         frameView.setAccessibilityLabel(url.lastPathComponent)
         videoBadge.isHidden = Media.kind(of: url) != .video
 
-        if let cached = ThumbnailLoader.shared.cached(url) {
+        if let cached = ThumbnailLoader.shared.cached(url, scale: scale) {
             thumbnailView.image = cached
             return
         }
@@ -167,7 +188,7 @@ private final class ThumbnailItem: NSCollectionViewItem {
                                                 scale: scale) { [weak self] image in
             guard let self, self.url == url else { return }
             self.operation = nil
-            self.thumbnailView.image = image ?? NSWorkspace.shared.icon(forFile: url.path)
+            self.thumbnailView.image = image
         }
     }
 }
