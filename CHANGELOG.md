@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Thumbnail strip along the bottom of the window showing every file in the
+  folder, with the current one highlighted; click a thumbnail to jump to it.
+  Toggle with `T` or View › Hide/Show Thumbnails (`⌥⌘T`); the choice is
+  remembered. Shown only when the folder has more than one file. Thumbnails
+  are rendered by Quick Look for the visible part of the strip only.
+
 ## [1.5.0] - 2026-08-01
 
 ### Changed

@@ -48,6 +48,12 @@ struct FileNavigator {
         return files[index]
     }
 
+    mutating func jump(to index: Int) -> URL? {
+        guard files.indices.contains(index) else { return nil }
+        self.index = index
+        return files[index]
+    }
+
     func peekNext() -> URL? {
         guard files.count > 1 else { return nil }
         return files[(index + 1) % files.count]

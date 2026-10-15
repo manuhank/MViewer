@@ -2,7 +2,8 @@ import AppKit
 import AVKit
 import ImageIO
 
-final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenuDelegate {
+final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenuDelegate,
+                                    NSMenuItemValidation {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.item(withTitle: "Copy Image")?.title = currentKind == .video ? "Copy File" : "Copy Image"
@@ -25,6 +26,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         return saved >= 200 ? CGFloat(saved) : 320
     }()
     private let counterPill = CounterPillView()
+    private let thumbnailStrip = ThumbnailStripView(frame: .zero)
+    private var thumbnailsEnabled = UserDefaults.standard.object(forKey: thumbnailsKey) as? Bool ?? true
+    private var thumbnailStripShown = false
     private let shortcutsOverlay = ShortcutsOverlayView()
     private let aboutOverlay = AboutOverlayView()
     private var playerView: AVPlayerView?
@@ -41,6 +45,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     private var hideControlsTimer: Timer?
 
     private static let volumeKey = "VideoVolume"
+    private static let thumbnailsKey = "ThumbnailStripVisible"
     private static let mutedKey = "VideoMuted"
 
     private var backingScale: CGFloat { window?.backingScaleFactor ?? 2 }
@@ -79,6 +84,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         mediaContainer.frame = container.bounds
         mediaContainer.autoresizingMask = [.width, .height]
         container.addSubview(mediaContainer)
+
+        thumbnailStrip.autoresizingMask = [.width, .maxYMargin]
+        thumbnailStrip.isHidden = true
+        thumbnailStrip.onSelect = { [weak self] index in self?.showFile(at: index) }
+        container.addSubview(thumbnailStrip)
 
         infoSidebar.frame = NSRect(x: container.bounds.width - sidebarWidth, y: 0,
                                    width: sidebarWidth, height: container.bounds.height)
@@ -243,6 +253,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         if sidebarVisible {
             infoSidebar.render(url: url)
         }
+        updateThumbnailStrip()
         showTransientControls()
         prefetchNeighbors()
     }
@@ -515,6 +526,44 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         display(url)
     }
 
+    private func showFile(at index: Int) {
+        guard var nav = navigator, index != nav.index, let url = nav.jump(to: index) else { return }
+        navigator = nav
+        display(url)
+    }
+
+    // MARK: - Thumbnail strip
+
+    @objc func toggleThumbnails(_ sender: Any?) {
+        thumbnailsEnabled.toggle()
+        UserDefaults.standard.set(thumbnailsEnabled, forKey: Self.thumbnailsKey)
+        updateThumbnailStrip()
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleThumbnails(_:)) {
+            menuItem.title = thumbnailsEnabled ? "Hide Thumbnails" : "Show Thumbnails"
+        }
+        return true
+    }
+
+    /// Shown when enabled and there is more than one file; hidden it does no
+    /// work at all. Showing or hiding it resizes the media area.
+    private func updateThumbnailStrip() {
+        let show = thumbnailsEnabled && (navigator?.count ?? 0) > 1
+        if let navigator, show {
+            thumbnailStrip.show(files: navigator.files, current: navigator.index)
+        }
+        guard show != thumbnailStripShown else { return }
+        thumbnailStripShown = show
+        layoutContent()
+        if show, let navigator {
+            // First layout at its real width, then center the current file.
+            thumbnailStrip.show(files: navigator.files, current: navigator.index)
+        }
+        if currentKind == .image { fitToWindow() }
+    }
+
     // MARK: - Context menu & file actions
 
     private func makeContextMenu() -> NSMenu {
@@ -576,10 +625,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     private func layoutContent() {
         guard let container = window?.contentView else { return }
         let bounds = container.bounds
+        let stripHeight = thumbnailStripShown ? ThumbnailStripView.height : 0
+        thumbnailStrip.isHidden = !thumbnailStripShown
         if sidebarVisible {
             let width = min(sidebarWidth, bounds.width / 2)
-            mediaContainer.frame = NSRect(x: 0, y: 0,
-                                          width: bounds.width - width, height: bounds.height)
+            mediaContainer.frame = NSRect(x: 0, y: stripHeight,
+                                          width: bounds.width - width, height: bounds.height - stripHeight)
+            thumbnailStrip.frame = NSRect(x: 0, y: 0, width: bounds.width - width, height: stripHeight)
             infoSidebar.frame = NSRect(x: bounds.width - width, y: 0,
                                        width: width, height: bounds.height)
             infoSidebar.isHidden = false
@@ -590,7 +642,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         } else {
             infoSidebar.isHidden = true
             sidebarHandle.isHidden = true
-            mediaContainer.frame = bounds
+            mediaContainer.frame = NSRect(x: 0, y: stripHeight,
+                                          width: bounds.width, height: bounds.height - stripHeight)
+            thumbnailStrip.frame = NSRect(x: 0, y: 0, width: bounds.width, height: stripHeight)
         }
         positionPill()
     }
@@ -677,6 +731,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
                 return true
             case "3":
                 toggle360(nil)
+                return true
+            case "t":
+                toggleThumbnails(nil)
                 return true
             case "0":
                 fitToWindow()

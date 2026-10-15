@@ -48,6 +48,7 @@ final class ShortcutsOverlayView: NSView {
         ("⌘O", "Open…"),
         ("⌘⌫", "Move to Trash"),
         ("3", "Toggle 360° video view (drag to look, scroll to zoom)"),
+        ("T  /  ⌥⌘T", "Show / hide thumbnail strip"),
         ("H  /  ?", "This help"),
         ("A", "About / version"),
         ("Esc", "Dismiss / exit full screen / close"),

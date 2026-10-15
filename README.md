@@ -51,6 +51,7 @@ To make it the default viewer for a format: select a file in Finder →
 | `⌘I` | Info sidebar (metadata, EXIF, GPS) |
 | `⌘⌫` | Move to Trash |
 | `3` | Toggle 360° video view |
+| `T` / `⌥⌘T` | Show / hide the thumbnail strip |
 | `H` / `?` / `⌘/` | Keyboard shortcuts overlay |
 | `A` | About / version overlay |
 | `Esc` | Exit full screen / close |
@@ -68,6 +69,12 @@ where they were taken — click it to open the spot in Maps.
 360° videos (Spherical Video metadata — YouTube/GoPro/Insta360 style) are
 detected automatically and rendered inside a sphere: drag to look around,
 scroll to zoom. Press `3` to toggle the mode manually on any video.
+
+When the folder has more than one file, a thumbnail strip along the bottom
+shows all of them, with the current one highlighted; click a thumbnail to jump
+to it. Press `T` (or View › Hide Thumbnails) to toggle it; the choice is
+remembered. Thumbnails come from Quick Look and are loaded only for the
+visible part of the strip, so big folders stay fast.
 
 The window opens maximized, and images are always scaled to fill the view —
 small images are stretched up, large ones fitted down. A pill at the bottom

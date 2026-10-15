@@ -95,6 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(withTitle: "Actual Size",
                          action: #selector(ViewerWindowController.actualSize(_:)), keyEquivalent: "1")
         viewMenu.addItem(.separator())
+        let thumbnails = viewMenu.addItem(withTitle: "Hide Thumbnails",
+                                          action: #selector(ViewerWindowController.toggleThumbnails(_:)),
+                                          keyEquivalent: "t")
+        thumbnails.keyEquivalentModifierMask = [.option, .command]
         let fullscreen = viewMenu.addItem(withTitle: "Enter Full Screen",
                                           action: #selector(NSWindow.toggleFullScreen(_:)),
                                           keyEquivalent: "f")
