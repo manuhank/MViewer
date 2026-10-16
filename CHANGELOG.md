@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now close it and also run (e.g. `⌘,` opens Settings, `⌘⌫` moves the file to
   the Trash); other keys still only close it.
 
+### Fixed
+
+- Holding a key no longer repeats one-shot actions: holding `⌘⌫` used to move
+  one more file to the Trash per key repeat, and toggles (full screen, info,
+  help…) flickered. Browsing and zooming still repeat while a key is held.
+
 ## [1.5.0] - 2026-08-01
 
 ### Changed

@@ -636,6 +636,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     private func handleKey(_ event: NSEvent) -> Bool {
         let action = ShortcutStore.shared.action(matching: event)
+        // A held key repeats only actions meant to repeat (browsing, zooming).
+        // Other repeats are swallowed, not passed on: the menu would run them
+        // again (holding ⌘⌫ trashed one more file per repeat).
+        if event.isARepeat, let action, !isRepeatable(action) { return true }
         if !shortcutsOverlay.isHidden || !aboutOverlay.isHidden {
             var reopening: [ShortcutAction] = []
             if !shortcutsOverlay.isHidden { reopening.append(.showShortcuts) }
@@ -651,6 +655,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         guard let action else { return false }
         perform(action)
         return true
+    }
+
+    private func isRepeatable(_ action: ShortcutAction) -> Bool {
+        switch action {
+        case .previousFile, .nextFile, .zoomIn, .zoomOut: return true
+        case .playPause: return currentKind == .image // Space browses images
+        default: return false
+        }
     }
 
     private func perform(_ action: ShortcutAction) {
